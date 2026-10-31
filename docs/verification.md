@@ -4,7 +4,7 @@ Environment: macOS arm64, Node.js 25.9.0, npm 11.12.1. Official MCP SDK 1.32.2 a
 
 ## Automated suite
 
-`npm test`: 13 tests passed, 0 failures, 0 skipped after the Homebrew setup changes.
+`npm test` for the 0.1.0 release: 13 tests passed, 0 failures, 0 skipped after the Homebrew setup changes.
 
 - Two temporary identities paired using one invitation. Both saved the correct peer; a second use of the code was rejected. A selected session excerpt arrived with a verified durable-delivery receipt, and replaying the message did not duplicate it. A stranger's envelope was rejected.
 - An incoming task result was rejected before local approval. After approval, the result arrived on the original thread with a reference to the request. Repeating completion and sending through a revoked contact were rejected.
@@ -54,3 +54,17 @@ An unauthenticated download of both the public formula and its referenced archiv
 `brew fetch --formula imprintsystems/tap/clanker` succeeded. A Homebrew install dry-run automatically found the public tap and trusted the requested formula, then stopped on the existing shared manual-page directory permissions issue described above. No service was started and no agent configuration was changed during this verification.
 
 The imprintsystems organization previously contained its Claude Cowork plugin marketplace and no Homebrew tap. The release-plus-tap pattern follows [Homebrew's recommended direct installation](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap) and is also used by [steipete's tool distribution](https://github.com/steipete/homebrew-tap).
+
+## 0.2.0 agent connections and terminal setup
+
+`npm test`: 20 tests passed, 0 failures, 0 skipped. The integration suite ran with permission to bind temporary local sockets; sandbox-only runs cannot bind these sockets.
+
+The added adapter tests cover Hermes YAML, Codex native CLI registration, Claude Code/Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Temporary settings preserve unrelated servers and comments. Malformed files and conflicting entries remain unchanged. Tests also check legacy migration, private file permissions, selection cancellation and partial failures. Agent configuration tests use isolated fixtures and a stub for Codex CLI mutations, so they do not configure real user apps.
+
+An actual MCP SDK client successfully used a selected app credential. Revoking it denied subsequent calls and an inbox wait already in progress. An anonymous MCP session was also denied after setup enabled access control. This is a local connection policy, not isolation from other processes running as the same user.
+
+The 0.1.0 Homebrew install and background-service setup were successfully completed on a separate MacBook by a human tester. This confirms that install path on that device. Cross-device message delivery and idle notification behavior in each supported agent app remain unverified. The adapters above are tested configuration integrations, not claims that every host has been exercised live.
+
+The actual prompt flow was driven through temporary pseudo-terminals at 100×34 and 80×24 cells. Name entry, multi-selection, confirmation and saving all completed. Screens were captured and visually inspected. The check used isolated app configurations and did not change installed agent settings. `npm audit --omit=dev` reported 0 known vulnerabilities.
+
+All 20 tests also passed from the extracted 0.2.0 package under Node.js 24.22.1, matching the Homebrew formula’s major runtime version. The packaged CLI and MCP/setup modules loaded with their bundled dependencies.

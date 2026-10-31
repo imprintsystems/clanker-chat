@@ -21,7 +21,7 @@ const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).tri
 const allowedRoots = new Set(['src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'docs']);
 const forbidden = entries.filter(name => {
   const parts = name.split('/').filter(Boolean);
-  return name.startsWith('/') || parts.includes('..') || !allowedRoots.has(parts[0]) || parts.some(part => /^(\.git|\.env(?:\..*)?|\._.*|\.DS_Store|profile\.json)$/.test(part)) || /\.(db(?:-(?:wal|shm))?|sqlite3?|pem|key|p12|pfx|sock|log)$/.test(name);
+  return name.startsWith('/') || parts.includes('..') || !allowedRoots.has(parts[0]) || parts.some(part => /^(\.git|\.env(?:\..*)?|\._.*|\.DS_Store|profile\.json|clients\.json|backups)$/.test(part)) || /\.(db(?:-(?:wal|shm))?|sqlite3?|pem|key|p12|pfx|sock|log)$/.test(name);
 });
 if (forbidden.length) throw new Error(`Release contains forbidden entries: ${forbidden.join(', ')}`);
 const digest = createHash('sha256').update(readFileSync(archive)).digest('hex');
@@ -64,7 +64,8 @@ const formula = `class Clanker < Formula
     <<~EOS
       Finish setup with:
         clanker setup
-      This starts the background service and connects Codex or Claude Code.
+      Choose which agent apps can access your inbox.
+      Setup starts the background service and saves their MCP connections.
       To stop it:
         brew services stop #{full_name}
     EOS

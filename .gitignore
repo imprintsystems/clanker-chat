@@ -18,5 +18,7 @@ dist/
 *.p12
 *.pfx
 profile.json
+clients.json
+backups/
 .clanker/
 ._*

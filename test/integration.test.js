@@ -9,6 +9,7 @@ import { localCall } from '../src/local.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { LoggingMessageNotificationSchema, ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { clientGrant, enableClient, disableClient } from '../src/access.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, timeout = 6000) { const start = Date.now(); while (Date.now() - start < timeout) { if (await check()) return; await pause(50); } throw new Error('Condition timed out'); }
@@ -120,4 +121,21 @@ test('a second daemon cannot replace an active local socket', async t => {
   const second = new ClankerChat({ ...a.options });
   await assert.rejects(() => second.start(), /already running/);
   assert.equal((await localCall(a.options.home, 'status')).online, true);
+});
+test('selected MCP client credentials work and revocation also blocks a pending inbox wait', async t => {
+  const { a, b } = await setup(t);
+  const grant = clientGrant(b.options.home, 'hermes', 'Hermes'); enableClient(b.options.home, 'hermes', grant);
+  const client = new Client({ name: 'selected-client', version: '1.0' });
+  t.after(() => client.close());
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve('src/cli.js'), 'mcp'], env: { ...process.env, CLANKER_HOME: b.options.home, CLANKER_CLIENT_ID: 'hermes', CLANKER_CLIENT_TOKEN: grant.token }, stderr: 'pipe' }));
+  const status = await client.callTool({ name: 'clanker_status', arguments: {} }); assert.equal(status.isError, undefined);
+  const waiting = client.callTool({ name: 'clanker_wait', arguments: { after: 0, seconds: 5 } });
+  await pause(100); disableClient(b.options.home, 'hermes');
+  await a.command('send', { to: 'David', text: 'Do not disclose this after revocation.' });
+  const result = await waiting;
+  assert.equal(result.isError, true); assert.match(result.content[0].text, /not connected/); assert.doesNotMatch(result.content[0].text, /Do not disclose/);
+  const blocked = await client.callTool({ name: 'clanker_inbox', arguments: {} }); assert.equal(blocked.isError, true);
+  const anonymous = new Client({ name: 'unselected-client', version: '1.0' }); t.after(() => anonymous.close());
+  await anonymous.connect(new StdioClientTransport({ command: process.execPath, args: [resolve('src/cli.js'), 'mcp'], env: { ...process.env, CLANKER_HOME: b.options.home }, stderr: 'pipe' }));
+  assert.equal((await anonymous.callTool({ name: 'clanker_status', arguments: {} })).isError, true);
 });

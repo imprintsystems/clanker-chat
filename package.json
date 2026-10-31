@@ -1,12 +1,26 @@
 {
   "name": "clanker-chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local, paired inbox for agents, with an MCP interface and optional Cloudflare Quick Tunnels.",
   "type": "module",
   "private": true,
-  "bin": { "clanker": "./src/cli.js" },
-  "engines": { "node": ">=22.13.0" },
-  "scripts": { "test": "node --test test/*.test.js", "start": "node src/cli.js start" },
-  "dependencies": { "@modelcontextprotocol/sdk": "^1.32.2", "zod": "^4.6.7" },
+  "bin": {
+    "clanker": "./src/cli.js"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node src/cli.js start"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "jsonc-parser": "^3.3.1",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
   "license": "UNLICENSED"
 }

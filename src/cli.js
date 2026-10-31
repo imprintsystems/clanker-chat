@@ -3,43 +3,54 @@ import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { defaultHome } from './store.js';
 import { localCall } from './local.js';
+import { VERSION } from './version.js';
+import { banner, line, printResult, failure } from './terminal.js';
 
-const help = `clanker 0.1.0
+const help = `clanker ${VERSION}
 
-clanker start --name Erik       Start local daemon and a Quick Tunnel
-clanker setup                   Set name, start background service, connect an agent
-clanker setup --name Erik --client codex
-clanker start --local           Local-only test mode, no tunnel
-clanker invite                 Print a single-use code (valid 10 minutes)
-clanker pair                    Paste a friend's code on stdin
-clanker pair <code>             Pair using a code (visible in shell history)
-clanker send <peer> <text>       Send a message
-clanker send <peer> --file note.txt --kind session
-clanker send <peer> <text> --kind task_request
-clanker inbox [--unread]        Read received messages
-clanker outbox                  Inspect queued/delivered messages
-clanker watch                   Print incoming messages until interrupted
-clanker read <id>               Mark a message read
-clanker approve <id>            Locally approve an incoming task request
-clanker decline <id>            Locally decline an incoming task request
-clanker complete <id> <result>  Reply to an approved request
-clanker peers                   List paired contacts
-clanker revoke <peer>           Block a peer and cancel queued messages
-clanker retry                   Retry queued deliveries now
-clanker status                  Show connection and delivery status
-clanker mcp                     Run MCP over stdin/stdout
-clanker config                  Print MCP JSON config for this installation
+  Your agents. In the loop.
 
-Options: --home <path> (or CLANKER_HOME), --name <name>, --port <port>,
-         --file <path>, --kind message|session|task_request, --thread <uuid>,
-         --reply-to <uuid>, --unread, --after <sequence>, --local, --help
-         --client codex|claude|manual, --no-service (for source checkouts)
+  GET CONNECTED
+    clanker setup                      Guided setup with app discovery
+    clanker agents                     Choose which agents can use your inbox
+    clanker agents --list               Show detected and connected apps
+    clanker invite                     Create a single-use invite
+    clanker pair                       Paste an invite from someone else
 
-No incoming message executes code. Task approval is a local workflow gate;
-the recipient's agent app still controls permissions for work on its device.
+  YOUR INBOX
+    clanker                            Open the interactive home screen
+    clanker inbox [--unread]            Read received messages
+    clanker send David "Hello"          Send a message
+    clanker outbox                     Check delivery
+    clanker peers                      Your contacts
+    clanker status                     Connection and unread counts
+    clanker watch                      Wait for messages
+    clanker read <id>                   Mark a message read
+    clanker revoke <peer>               Block a contact
+
+  WORK TOGETHER
+    clanker send David --file note.txt --kind session
+    clanker send David "Please test this" --kind task_request
+    clanker approve <id>                Approve a local task request
+    clanker decline <id>                Decline a local task request
+    clanker complete <id> "Result"      Send a result for an approved task
+
+  AUTOMATION & SETTINGS
+    clanker setup --name Erik --client hermes --client omp
+    clanker agents --client none        Disconnect all agent apps
+    clanker config                     Manual MCP connection settings
+    clanker mcp                        MCP over stdin/stdout
+    clanker start                      Run the inbox in the foreground
+    clanker start --local               Local-only test mode
+    clanker retry                      Retry queued deliveries
+
+  Options: --json, --home <path>, --no-service, --name <name>, --client <id>
+           --port <port>, --file <path>, --kind <kind>, --thread <uuid>
+           --reply-to <uuid>, --after <sequence>, --unread, --list, --help
+
+  Incoming messages never execute commands. Both devices must be online to deliver.
 `;
 
 async function main() {
@@ -48,77 +59,99 @@ async function main() {
     home: { type: 'string' }, name: { type: 'string' }, port: { type: 'string' },
     file: { type: 'string' }, kind: { type: 'string' }, thread: { type: 'string' },
     'reply-to': { type: 'string' }, unread: { type: 'boolean' }, after: { type: 'string' },
-    client: { type: 'string' }, 'no-service': { type: 'boolean' },
-    local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }
+    client: { type: 'string', multiple: true }, 'no-service': { type: 'boolean' },
+    local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
+    json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }
   } });
-  const [command, target, ...words] = positionals; const home = resolve(values.home || defaultHome());
-  const output = value => console.log(JSON.stringify(value, null, 2));
-  if (values.help || !command || command === 'help') return console.log(help);
-  if (command === 'config') {
-    const { launchCommand } = await import('./setup.js');
-    return output({ mcpServers: { 'clanker': launchCommand(home, fileURLToPath(import.meta.url)) } });
+  let [command, target, ...words] = positionals;
+  const home = resolve(values.home || defaultHome());
+  const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && !values.json;
+  const cli = fileURLToPath(import.meta.url);
+  const output = (action, value) => values.json ? console.log(JSON.stringify(value, null, 2)) : printResult(action, value);
+  if (values.version) return console.log(`clanker ${VERSION}`);
+  if (values.help || command === 'help') return console.log(help);
+  if (!command) {
+    if (!interactive) return console.log(help);
+    const { readProfile } = await import('./setup.js');
+    if (!readProfile(home).name) command = 'setup';
+    else { const { showHome } = await import('./onboarding.js'); command = await showHome(home); if (!command) return; }
   }
-  if (command === 'setup') {
-    const { readProfile, saveProfile, launchCommand, registerClient, startInstalledService } = await import('./setup.js');
-    let name = values.name || readProfile(home).name; let client = values.client;
-    if (process.stdin.isTTY && (!name || !client)) {
-      const { createInterface } = await import('node:readline/promises');
-      const input = createInterface({ input: process.stdin, output: process.stderr });
-      try {
-        name ||= (await input.question('Your name: ')).trim();
-        client ||= (await input.question('Connect which app? codex / claude / manual: ')).trim().toLowerCase();
-      } finally { input.close(); }
+  if (command === 'mcp') { const { serveMCP } = await import('./mcp.js'); return serveMCP(home); }
+  if (command === 'config') {
+    const { launchCommand } = await import('./setup.js'); const { readAccess } = await import('./access.js');
+    const access = readAccess(home); const grant = access.clients.manual;
+    if (access.enforced && !grant?.enabled) throw new Error('Select Other MCP app in clanker agents before copying manual settings.');
+    const launch = launchCommand(home, cli);
+    if (grant?.enabled) Object.assign(launch.env, { CLANKER_CLIENT_ID: 'manual', CLANKER_CLIENT_TOKEN: grant.token });
+    return console.log(JSON.stringify({ mcpServers: { clanker: launch } }, null, 2));
+  }
+  if (command === 'setup' || command === 'agents') {
+    const { discoverClients } = await import('./clients.js'); const { readAccess } = await import('./access.js');
+    if (command === 'agents' && (values.list || (!interactive && !values.client))) {
+      const access = readAccess(home);
+      const rows = discoverClients().map(({ id, label, detected, available, hint }) => ({ id, label, detected, available, hint, connected: !!access.clients[id]?.enabled }));
+      if (values.json) return console.log(JSON.stringify(rows, null, 2));
+      banner('Agents on this device');
+      for (const row of rows) line(row.id, `${row.label} · ${row.connected ? 'connected' : row.hint}`);
+      console.log('\n  Run clanker agents to choose access.\n'); return;
     }
-    if (!name) throw new Error('Provide your name with --name, or run setup in an interactive terminal.');
-    client ||= 'manual';
-    if (!['codex', 'claude', 'manual'].includes(client)) throw new Error('Choose --client codex, claude, or manual.');
-    if (!values['no-service'] && home !== resolve(homedir(), '.clanker')) throw new Error('Homebrew service uses ~/.clanker. For a custom --home, use --no-service and start the daemon separately.');
-    if (!values['no-service'] && !process.env.CLANKER_BREW_FORMULA) throw new Error('Install through Homebrew first, or use setup --no-service from this checkout.');
-    const profile = saveProfile(home, { name });
-    const connection = registerClient(client, launchCommand(home, fileURLToPath(import.meta.url)), { claudeSettings: resolve(homedir(), '.claude.json') });
-    const service = values['no-service'] ? { state: 'not started', next: 'Run clanker start separately.' } : await startInstalledService(home, { formula: process.env.CLANKER_BREW_FORMULA });
-    output({ name: profile.name, ...service, agent: connection, next: 'Restart your agent app if needed, then run clanker invite or clanker pair.' });
+    const { runSetup } = await import('./onboarding.js');
+    const result = await runSetup({ home, cli, name: values.name, selected: values.client?.flatMap(value => value.split(',')).filter(Boolean), noService: !!values['no-service'], json: !!values.json, agentsOnly: command === 'agents', interactive });
+    if (result.failed) process.exitCode = 1;
     return;
   }
   if (command === 'start') {
-    const { ClankerChat } = await import('./daemon.js');
+    const { ClankerChat } = await import('./daemon.js'); const { readProfile } = await import('./setup.js');
     const port = values.port === undefined ? 0 : Number(values.port);
-    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
-    const { readProfile } = await import('./setup.js');
+    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Port must be a number from 0 to 65535.');
     const name = values.name || readProfile(home).name;
-    if (name !== undefined && (!name.trim() || name.length > 80)) throw new Error('Name must have 1 to 80 characters');
+    if (name !== undefined && (!name.trim() || name.length > 80)) throw new Error('Name must have 1 to 80 characters.');
     const daemon = new ClankerChat({ home, name, port, local: !!values.local, cloudflared: process.env.CLOUDFLARED_BIN });
     daemon.on('warning', value => console.error(`clanker: ${value}`));
-    daemon.on('message', value => console.error(`New Clanker Chat message ${value.id}. Read it with clanker inbox.`));
+    daemon.on('message', () => console.error('New Clanker Chat message. Run clanker inbox.'));
     let closing = false;
     const stop = async () => { if (closing) return; closing = true; await daemon.close(); };
     daemon.on('tunnelStopped', () => { process.exitCode = 1; stop(); });
-    await daemon.start();
-    process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    return output({ ...daemon.store.status(), online: daemon.endpointReady, mode: values.local ? 'local test' : 'Cloudflare Quick Tunnel', home });
+    await daemon.start(); process.once('SIGINT', stop); process.once('SIGTERM', stop);
+    return output('status', { ...daemon.store.status(), online: daemon.endpointReady });
   }
-  if (command === 'mcp') { const { serveMCP } = await import('./mcp.js'); return serveMCP(home); }
   const call = (action, args = {}) => localCall(home, action, args);
   const content = () => values.file ? readFileSync(values.file, 'utf8') : words.join(' ');
   switch (command) {
-    case 'invite': { const invite = await call('invite'); console.log(invite.code); console.error(`Single use. Expires ${new Date(invite.expires).toISOString()}. Share only with the intended contact.`); break; }
+    case 'invite': {
+      const invite = await call('invite');
+      if (values.json) console.log(JSON.stringify(invite));
+      else { banner('Invite someone to Clanker Chat'); console.log(`  ${invite.code}\n\n  Single use. Valid for 10 minutes. Share privately.\n`); }
+      break;
+    }
     case 'pair': {
       let code = target;
-      if (!code) { console.error('Paste connection code, then press Enter:'); const { createInterface } = await import('node:readline/promises'); const input = createInterface({ input: process.stdin, output: process.stderr, terminal: false }); for await (const line of input) { code = line.trim(); input.close(); break; } }
-      output(await call('pair', { code })); break;
+      if (!code && interactive) {
+        const p = await import('@clack/prompts'); code = await p.text({ message: 'Paste your invite code' });
+        if (p.isCancel(code)) return;
+      } else if (!code) {
+        const { createInterface } = await import('node:readline/promises'); const input = createInterface({ input: process.stdin, terminal: false });
+        for await (const text of input) { code = text.trim(); input.close(); break; }
+      }
+      output('pair', await call('pair', { code: code?.trim() })); break;
     }
-    case 'send': output(await call('send', { to: target, text: content(), kind: values.kind || 'message', ...(values.thread ? { thread: values.thread } : {}), ...(values['reply-to'] ? { replyTo: values['reply-to'] } : {}) })); break;
-    case 'inbox': case 'outbox': output(await call('inbox', { unread: !!values.unread, after: Number(values.after || 0), direction: command === 'outbox' ? 'out' : 'in' })); break;
-    case 'read': output(await call('read', { id: target })); break;
-    case 'approve': case 'decline': output(await call('decide', { id: target, decision: command === 'approve' ? 'approved' : 'declined' })); break;
-    case 'complete': output(await call('complete', { id: target, text: content() })); break;
-    case 'revoke': output(await call('revoke', { peer: target })); break;
-    case 'status': case 'peers': case 'retry': output(await call(command)); break;
+    case 'send': output('send', await call('send', { to: target, text: content(), kind: values.kind || 'message', ...(values.thread ? { thread: values.thread } : {}), ...(values['reply-to'] ? { replyTo: values['reply-to'] } : {}) })); break;
+    case 'inbox': case 'outbox': output(command, await call('inbox', { unread: !!values.unread, after: Number(values.after || 0), direction: command === 'outbox' ? 'out' : 'in' })); break;
+    case 'read': output(command, await call('read', { id: target })); break;
+    case 'approve': case 'decline': output(command, await call('decide', { id: target, decision: command === 'approve' ? 'approved' : 'declined' })); break;
+    case 'complete': output(command, await call('complete', { id: target, text: content() })); break;
+    case 'revoke': output(command, await call('revoke', { peer: target })); break;
+    case 'status': case 'peers': case 'retry': output(command, await call(command)); break;
     case 'watch': {
       let after = Number(values.after || 0);
-      while (true) { const rows = await call('wait', { after, seconds: 20 }); for (const row of rows) { output(row); after = row.seq; } }
+      if (!values.json) banner('Waiting for messages. Ctrl-C to close.');
+      while (true) { const rows = await call('wait', { after, seconds: 20 }); if (rows.length) output('watch', rows); for (const row of rows) after = row.seq; }
     }
     default: throw new Error(`Unknown command: ${command}. Run clanker --help.`);
   }
 }
-main().catch(error => { console.error(`clanker: ${error.message}${['ECONNREFUSED', 'ENOENT'].includes(error.code) ? '. Start the daemon with clanker start.' : ''}`); process.exitCode = 1; });
+main().catch(error => {
+  if (error.constructor.name === 'Cancelled') { process.exitCode = 0; return; }
+  const hint = ['ECONNREFUSED', 'ENOENT'].includes(error.code) ? ' Run clanker setup to start your inbox.' : '';
+  failure(`${error.message}${hint}`); process.exitCode = 1;
+});

@@ -4,7 +4,7 @@ A local inbox that lets your agent exchange messages, selected session text and 
 
 Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
 
-This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its setup command can start a background service and register the MCP tools with Codex or Claude Code. An agent-specific idle wake-up integration is not included.
+This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. An agent-specific idle wake-up integration is not included.
 
 ## Install with Homebrew
 
@@ -15,12 +15,24 @@ brew install imprintsystems/tap/clanker
 clanker setup
 ```
 
-Setup asks for your name and whether to connect Codex, Claude Code, or another MCP client. It starts the background service, which starts again at login and is restarted if it exits. For another client, setup prints the MCP configuration to add in that app. Restart the agent app if needed after setup.
+Setup asks for your name, shows an app checklist, and starts the background service. Use Space to select apps and Enter to continue. It supports Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. The service starts again at login and restarts if it exits. Setup can then create or accept an invite. Restart connected apps if needed and approve the new tools when prompted.
 
-You can also run setup without prompts:
+Run `clanker` to open the inbox menu, `clanker agents` to change app access, or `clanker agents --list` to inspect detection. Apps that were not found are labelled and can be configured for a later installation. Codex requires its CLI. See [agent connections](docs/agents.md) for configuration paths, profiles and access limits.
+
+To update an existing installation:
 
 ```sh
-clanker setup --name Erik --client codex
+brew update
+brew upgrade clanker
+clanker setup
+```
+
+Run setup again after upgrading from 0.1.0 to migrate existing app connections and restart the background service with the new version.
+
+You can also run setup without prompts. The selected list replaces the previous selection; use `--client none` to disconnect every app:
+
+```sh
+clanker setup --name Erik --client hermes --client omp
 ```
 
 Create a code with `clanker invite` and share it privately. Your friend installs the same package, runs setup, then runs `clanker pair` and pastes the code. The package handles the networking; neither person needs a Cloudflare account or domain. Quick Tunnel address changes still have the reconnection limits explained below. Persistent discovery through a peer-to-peer transport such as Iroh is not implemented in this release.
@@ -38,7 +50,7 @@ brew install cloudflared
 node src/cli.js start --name Erik
 ```
 
-Keep this terminal open. The daemon prints its public endpoint and an incoming-message notice. You can set `CLOUDFLARED_BIN=/absolute/path/to/cloudflared` to use a downloaded binary without installing it system-wide.
+Keep this terminal open. The daemon prints connection status and an incoming-message notice. You can set `CLOUDFLARED_BIN=/absolute/path/to/cloudflared` to use a downloaded binary without installing it system-wide.
 
 For source checkouts, `node src/cli.js setup --no-service` saves your name and connects an agent without requiring a Homebrew installation. Start the daemon separately as shown above.
 
@@ -62,7 +74,9 @@ Names are labels supplied by the other device. Use `peers` to get full IDs if tw
 
 ## Connect an agent
 
-Run `node src/cli.js config` to print MCP JSON containing the absolute paths for this checkout. Add its `clanker` entry to the MCP configuration supported by your agent app. The daemon must be running separately. Multiple sessions can connect to the same daemon and share its inbox.
+Run `node src/cli.js setup --no-service` and select your apps. For another MCP client, select **Other MCP app**, then run `node src/cli.js config` to get settings to copy into it. This explicit output contains a local connection credential; keep it private. The daemon must be running separately. Multiple sessions can connect to the same daemon and share its inbox.
+
+Human commands use readable terminal output. Add `--json` for automation. The `mcp` command keeps stdout reserved for the MCP protocol.
 
 The tools include `clanker_send`, `clanker_inbox`, `clanker_wait`, `clanker_peers`, `clanker_complete_task` and delivery status. Pairing and revocation are also available to the local agent when you ask for them.
 

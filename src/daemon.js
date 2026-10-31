@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { Store } from './store.js';
 import { endpoint, encodeInvite, decodeInvite, messageSchema, open, openPair, seal, post, text } from './protocol.js';
 import { socketPath, readJSON, json } from './local.js';
+import { authorizeClient } from './access.js';
+import { VERSION } from './version.js';
 
 const sendSchema = z.object({ to: z.string().min(1), text, kind: z.enum(['message', 'session', 'task_request']).default('message'), thread: z.string().uuid().optional(), replyTo: z.string().uuid().optional() }).strict();
 const listSchema = z.object({ unread: z.boolean().optional(), after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).optional(), direction: z.enum(['in', 'out']).optional() }).strict();
@@ -100,13 +102,16 @@ export class ClankerChat extends EventEmitter {
     try {
       if (req.method !== 'POST' || req.url !== '/local') return json(res, 404, { error: 'Not found' });
       if (!this.store) return json(res, 503, { error: 'Daemon starting' });
+      if (req.headers['x-clanker-origin'] === 'mcp') authorizeClient(this.options.home, req.headers['x-clanker-client'], req.headers['x-clanker-token']);
       const input = z.object({ command: z.string(), args: z.record(z.string(), z.unknown()) }).strict().parse(await readJSON(req));
-      json(res, 200, await this.command(input.command, input.args));
+      const result = await this.command(input.command, input.args);
+      if (req.headers['x-clanker-origin'] === 'mcp') authorizeClient(this.options.home, req.headers['x-clanker-client'], req.headers['x-clanker-token']);
+      json(res, 200, result);
     } catch (error) { json(res, 400, { error: error.message }); }
   }
   async command(command, args = {}) {
     switch (command) {
-      case 'status': return { ...this.store.status(), online: this.endpointReady };
+      case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION };
       case 'peers': return this.store.peers();
       case 'invite': {
         if (!this.endpointReady) throw new Error('Tunnel is not running');

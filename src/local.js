@@ -15,9 +15,10 @@ export async function readJSON(request) {
 export function json(response, status, value) {
   if (!response.destroyed) response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(value));
 }
-export function localCall(home, command, args = {}) {
+export function localCall(home, command, args = {}, client) {
   return new Promise((resolve, reject) => {
-    const request = http.request({ socketPath: socketPath(home), path: '/local', method: 'POST', headers: { 'content-type': 'application/json' }, timeout: 30_000 }, async response => {
+    const headers = { 'content-type': 'application/json', ...(client ? { 'x-clanker-origin': 'mcp', 'x-clanker-client': client.id || '', 'x-clanker-token': client.token || '' } : {}) };
+    const request = http.request({ socketPath: socketPath(home), path: '/local', method: 'POST', headers, timeout: 30_000 }, async response => {
       try {
         const value = await readJSON(response);
         if (response.statusCode !== 200) reject(new Error(value.error || 'Local request failed'));
