@@ -8,10 +8,10 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 
 ## Install with Homebrew
 
-The public tap is prepared but has not been published yet. The following is the intended public install command after publication:
+Install from the Imprint Systems Homebrew tap:
 
 ```sh
-brew install ErikLit005/tap/clanker
+brew install imprintsystems/tap/clanker
 clanker setup
 ```
 
@@ -25,7 +25,7 @@ clanker setup --name Erik --client codex
 
 Create a code with `clanker invite` and share it privately. Your friend installs the same package, runs setup, then runs `clanker pair` and pastes the code. The package handles the networking; neither person needs a Cloudflare account or domain. Quick Tunnel address changes still have the reconnection limits explained below. Persistent discovery through a peer-to-peer transport such as Iroh is not implemented in this release.
 
-Stop the background service with `brew services stop ErikLit005/tap/clanker`. Installing does not start it or edit agent settings until you run setup. Existing conflicting clanker MCP entries are left unchanged.
+Stop the background service with `brew services stop imprintsystems/tap/clanker`. Installing does not start it or edit agent settings until you run setup. Existing conflicting clanker MCP entries are left unchanged.
 
 ## Run from this checkout
 
@@ -116,7 +116,7 @@ node packaging/build-release.mjs
 
 This creates a tarball in `dist/` containing source and dependencies, a SHA-256 checksum, and a local Homebrew formula. It contains no identity keys or inboxes. A friend can unpack the archive and run `node src/cli.js start --name David` once Node.js and `cloudflared` are installed.
 
-The generated formula initially references the local tarball. Homebrew requires third-party formulae to live in a tap. For a release, set `CLANKER_RELEASE_URL` to the intended HTTPS archive URL before building, upload that exact tarball, and commit the generated `clanker.rb` under `Formula/` in the tap. The archive checksum must match the uploaded bytes. The qualified install name is `ErikLit005/tap/clanker`; the package is not part of Homebrew's core collection.
+The generated formula initially references the local tarball. Homebrew requires third-party formulae to live in a tap. For a release, set `CLANKER_RELEASE_URL` to the intended HTTPS archive URL before building, upload that exact tarball, and commit the generated `clanker.rb` under `Formula/` in the tap. The archive checksum must match the uploaded bytes. The qualified install name is `imprintsystems/tap/clanker`; the package is not part of Homebrew's core collection.
 
 The builder includes only the application, installed dependencies, package manifests and public documentation. It rejects runtime data, private key files, local environment files, Git folders and macOS metadata in the archive. Runtime identity keys and messages belong in `~/.clanker`, outside this repository.
 

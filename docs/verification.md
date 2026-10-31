@@ -39,7 +39,7 @@ Homebrew 7.0.9 parsed the original formula before the product rename in a tempor
 
 A full local Homebrew install was attempted with automatic updates, cleanup and unrelated dependent checks disabled. It stopped at Homebrew's preflight check because a shared manual-page directory is owned by another local user and is not writable by the current user. No permissions were changed to force installation. Installation, service launch by Homebrew and post-upgrade behavior have therefore not been confirmed end to end.
 
-The public GitHub repository, release assets and Homebrew tap have not been published. They are prepared for the intended `ErikLit005/tap/clanker` install name and await explicit approval to publish the package/source. The temporary test tap and its formula-specific trust were removed afterward.
+The distribution target is `imprintsystems/clanker-chat` for source and release assets and `imprintsystems/homebrew-tap` for the `imprintsystems/tap/clanker` formula. The temporary test tap and its formula-specific trust were removed after verification.
 
 ## Not verified or implemented
 

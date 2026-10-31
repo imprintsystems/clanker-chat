@@ -30,7 +30,7 @@ const url = process.env.CLANKER_RELEASE_URL || pathToFileURL(archive).href;
 if (!/^(https:|file:)/.test(url)) throw new Error('Release URL must use HTTPS or a local file');
 const formula = `class Clanker < Formula
   desc "A paired local inbox for agents, exposed through MCP"
-  homepage "https://github.com/ErikLit005/clanker-chat"
+  homepage "https://github.com/imprintsystems/clanker-chat"
   url ${JSON.stringify(url)}
   version ${JSON.stringify(pkg.version)}
   sha256 ${JSON.stringify(digest)}

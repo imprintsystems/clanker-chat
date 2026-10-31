@@ -6,7 +6,7 @@ Checked on 31 October 2026 for Clanker Chat 0.1.0. This checks disclosure of pri
 
 The product is **Clanker Chat**, the package and source directory are `clanker-chat`, and the CLI/Homebrew formula is `clanker`. MCP tools use `clanker_` names, the inbox resource is `clanker://inbox`, configuration uses `CLANKER_` environment variables, and local runtime data defaults to `~/.clanker`. The invitation prefix and protocol key-derivation label use the new identity. Old host configuration and runtime profiles outside this checkout were not changed.
 
-The intended public install command is `brew install ErikLit005/tap/clanker`. The repository, release and tap have not been published.
+The public install target is `brew install imprintsystems/tap/clanker`, using the `imprintsystems/clanker-chat` release repository and the `imprintsystems/homebrew-tap` formula repository.
 
 ## Findings and repairs
 
