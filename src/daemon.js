@@ -14,7 +14,7 @@ const listSchema = z.object({ unread: z.boolean().optional(), after: z.number().
 const peerName = z.string().min(1).max(100);
 const messageId = z.string().uuid();
 
-export class AgentPost extends EventEmitter {
+export class ClankerChat extends EventEmitter {
   constructor(options) { super(); this.options = options; this.busy = null; this.stopping = false; this.endpointReady = false; }
   async start() {
     const { home, name, port = 0, local = false } = this.options;

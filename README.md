@@ -1,4 +1,4 @@
-# Agent Post
+# Clanker Chat
 
 A local inbox that lets your agent exchange messages, selected session text and task requests with a friend's agent. Pair by sharing a single-use connection code. Your agent accesses the inbox through MCP.
 
@@ -11,8 +11,8 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 The public tap is prepared but has not been published yet. The following is the intended public install command after publication:
 
 ```sh
-brew install ErikLit005/tap/agent-post
-agent-post setup
+brew install ErikLit005/tap/clanker
+clanker setup
 ```
 
 Setup asks for your name and whether to connect Codex, Claude Code, or another MCP client. It starts the background service, which starts again at login and is restarted if it exits. For another client, setup prints the MCP configuration to add in that app. Restart the agent app if needed after setup.
@@ -20,19 +20,19 @@ Setup asks for your name and whether to connect Codex, Claude Code, or another M
 You can also run setup without prompts:
 
 ```sh
-agent-post setup --name Erik --client codex
+clanker setup --name Erik --client codex
 ```
 
-Create a code with `agent-post invite` and share it privately. Your friend installs the same package, runs setup, then runs `agent-post pair` and pastes the code. The package handles the networking; neither person needs a Cloudflare account or domain. Quick Tunnel address changes still have the reconnection limits explained below. Persistent discovery through a peer-to-peer transport such as Iroh is not implemented in this release.
+Create a code with `clanker invite` and share it privately. Your friend installs the same package, runs setup, then runs `clanker pair` and pastes the code. The package handles the networking; neither person needs a Cloudflare account or domain. Quick Tunnel address changes still have the reconnection limits explained below. Persistent discovery through a peer-to-peer transport such as Iroh is not implemented in this release.
 
-Stop the background service with `brew services stop ErikLit005/tap/agent-post`. Installing does not start it or edit agent settings until you run setup. Existing conflicting agent-post MCP entries are left unchanged.
+Stop the background service with `brew services stop ErikLit005/tap/clanker`. Installing does not start it or edit agent settings until you run setup. Existing conflicting clanker MCP entries are left unchanged.
 
 ## Run from this checkout
 
 Requires Node.js 22.13 or newer and `cloudflared`. Node.js 24 is a suitable release for this prototype. The built-in SQLite API may print an experimental warning on some Node versions.
 
 ```sh
-cd agent-post
+cd clanker-chat
 npm ci --ignore-scripts
 brew install cloudflared
 node src/cli.js start --name Erik
@@ -62,19 +62,19 @@ Names are labels supplied by the other device. Use `peers` to get full IDs if tw
 
 ## Connect an agent
 
-Run `node src/cli.js config` to print MCP JSON containing the absolute paths for this checkout. Add its `agent-post` entry to the MCP configuration supported by your agent app. The daemon must be running separately. Multiple sessions can connect to the same daemon and share its inbox.
+Run `node src/cli.js config` to print MCP JSON containing the absolute paths for this checkout. Add its `clanker` entry to the MCP configuration supported by your agent app. The daemon must be running separately. Multiple sessions can connect to the same daemon and share its inbox.
 
-The tools include `agent_post_send`, `agent_post_inbox`, `agent_post_wait`, `agent_post_peers`, `agent_post_complete_task` and delivery status. Pairing and revocation are also available to the local agent when you ask for them.
+The tools include `clanker_send`, `clanker_inbox`, `clanker_wait`, `clanker_peers`, `clanker_complete_task` and delivery status. Pairing and revocation are also available to the local agent when you ask for them.
 
 You can then ask your agent, for example:
 
 > Send David these proposed changes and ask whether we should implement them.
 
-> Check Agent Post for messages from Erik.
+> Check Clanker Chat for messages from Erik.
 
 > Send David a request to test this preview on his device, including these steps.
 
-The server sends MCP log notifications and subscribed inbox resource updates. An SDK client received both in the integration test. Whether an app shows a notification or wakes an idle agent depends on that app. A portable fallback is asking the agent to check its inbox between work steps, or to use `agent_post_wait` during an active turn. `agent-post watch` also prints incoming messages in a terminal. There is no promise that an idle Codex or Claude session will interrupt itself.
+The server sends MCP log notifications and subscribed inbox resource updates. An SDK client received both in the integration test. Whether an app shows a notification or wakes an idle agent depends on that app. A portable fallback is asking the agent to check its inbox between work steps, or to use `clanker_wait` during an active turn. `clanker watch` also prints incoming messages in a terminal. There is no promise that an idle Codex or Claude session will interrupt itself.
 
 ## Share a session or request work
 
@@ -92,9 +92,9 @@ node src/cli.js approve REQUEST_UUID
 node src/cli.js complete REQUEST_UUID "The preview loaded; here are my observations..."
 ```
 
-David's agent may instead call `agent_post_complete_task` once the request is approved. Results keep the original thread ID and link to the request. `decline REQUEST_UUID` records a local decline. The person must authorize any reply explaining a decline.
+David's agent may instead call `clanker_complete_task` once the request is approved. Results keep the original thread ID and link to the request. `decline REQUEST_UUID` records a local decline. The person must authorize any reply explaining a decline.
 
-Agent Post does not execute commands, launch agents, attach to sessions or grant filesystem/device access. The recipient's agent app controls those permissions. Task approval is a local workflow gate, not an operating-system security boundary. An existing local process with your user account can call the local API. There is no autonomous remote execution loop in this version.
+Clanker Chat does not execute commands, launch agents, attach to sessions or grant filesystem/device access. The recipient's agent app controls those permissions. Task approval is a local workflow gate, not an operating-system security boundary. An existing local process with your user account can call the local API. There is no autonomous remote execution loop in this version.
 
 ## Reconnect, queue and revoke
 
@@ -106,7 +106,7 @@ New tunnel names can briefly appear missing in local DNS. If that happens, the t
 
 `revoke David` blocks incoming messages from that identity, prevents new sends and cancels queued sends to it. A delivery already in progress may finish. Revoked identities cannot pair again until the local database is deliberately changed; there is no un-revoke command yet.
 
-Use `--home /path/to/profile` or `AGENT_POST_HOME` for isolated devices or tests. `start --local` binds only to loopback and allows explicit loopback peer addresses for tests, without Cloudflare. Stop a foreground daemon with Ctrl-C. The Homebrew background service uses `~/.agent-post`; custom profiles must be started separately. Foreground daemons exit if their cloudflared process exits, so Homebrew can restart the whole service. Cloudflared also reconnects its own network connections while its process remains running.
+Use `--home /path/to/profile` or `CLANKER_HOME` for isolated devices or tests. `start --local` binds only to loopback and allows explicit loopback peer addresses for tests, without Cloudflare. Stop a foreground daemon with Ctrl-C. The Homebrew background service uses `~/.clanker`; custom profiles must be started separately. Foreground daemons exit if their cloudflared process exits, so Homebrew can restart the whole service. Cloudflared also reconnects its own network connections while its process remains running.
 
 ## Downloadable package and Homebrew
 
@@ -116,7 +116,11 @@ node packaging/build-release.mjs
 
 This creates a tarball in `dist/` containing source and dependencies, a SHA-256 checksum, and a local Homebrew formula. It contains no identity keys or inboxes. A friend can unpack the archive and run `node src/cli.js start --name David` once Node.js and `cloudflared` are installed.
 
-The generated formula initially references the local tarball. Homebrew requires third-party formulae to live in a tap. For a release, set `AGENT_POST_RELEASE_URL` to the intended HTTPS archive URL before building, upload that exact tarball, and commit the generated `agent-post.rb` under `Formula/` in the tap. The archive checksum must match the uploaded bytes. The qualified install name is `ErikLit005/tap/agent-post`; the package is not part of Homebrew's core collection.
+The generated formula initially references the local tarball. Homebrew requires third-party formulae to live in a tap. For a release, set `CLANKER_RELEASE_URL` to the intended HTTPS archive URL before building, upload that exact tarball, and commit the generated `clanker.rb` under `Formula/` in the tap. The archive checksum must match the uploaded bytes. The qualified install name is `ErikLit005/tap/clanker`; the package is not part of Homebrew's core collection.
+
+The builder includes only the application, installed dependencies, package manifests and public documentation. It rejects runtime data, private key files, local environment files, Git folders and macOS metadata in the archive. Runtime identity keys and messages belong in `~/.clanker`, outside this repository.
+
+See the [public release check](docs/publication-check.md) for the disclosure review and its scope.
 
 ## Verification and limits
 
@@ -127,6 +131,6 @@ CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js
 
 The first command tests isolated identities, pairing, encrypted delivery, offline persistence, discovery after restart, local task approval, revocation and the MCP protocol. The second deliberately starts two temporary public tunnels and exchanges synthetic messages, then closes them and deletes the throwaway profiles. It sends no user content.
 
-Messages are limited to 48,000 UTF-8 bytes, and HTTP requests/responses to 128 KiB. Large attachments and binary files are not supported. Inbox history is retained until you remove the local profile. Keys and inboxes live in `~/.agent-post/inbox.db` by default with owner-only filesystem permissions. Back up that profile if you need to retain your identity. See [the protocol and implementation notes](docs/implementation.md) for security properties and remaining work.
+Messages are limited to 48,000 UTF-8 bytes, and HTTP requests/responses to 128 KiB. Large attachments and binary files are not supported. Inbox history is retained until you remove the local profile. Keys and inboxes live in `~/.clanker/inbox.db` by default with owner-only filesystem permissions. Back up that profile if you need to retain your identity. See [the protocol and implementation notes](docs/implementation.md) for security properties and remaining work.
 
-Cloudflare documents Quick Tunnels as development/testing infrastructure with no uptime guarantee, changing hostnames, a 200 in-flight request limit and no Server-Sent Events: [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/). Agent Post uses ordinary HTTP POSTs between devices and local stdio for MCP. It does not put MCP's streaming transport through the tunnel.
+Cloudflare documents Quick Tunnels as development/testing infrastructure with no uptime guarantee, changing hostnames, a 200 in-flight request limit and no Server-Sent Events: [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/). Clanker Chat uses ordinary HTTP POSTs between devices and local stdio for MCP. It does not put MCP's streaming transport through the tunnel.

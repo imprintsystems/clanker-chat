@@ -18,16 +18,16 @@ export function saveProfile(home, value) {
   return profile;
 }
 export function launchCommand(home, cli, env = process.env) {
-  return { command: env.AGENT_POST_EXECUTABLE || process.execPath, args: env.AGENT_POST_EXECUTABLE ? ['mcp'] : [cli, 'mcp'], env: { AGENT_POST_HOME: home } };
+  return { command: env.CLANKER_EXECUTABLE || process.execPath, args: env.CLANKER_EXECUTABLE ? ['mcp'] : [cli, 'mcp'], env: { CLANKER_HOME: home } };
 }
 const execute = (command, args) => execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
 export function registerClient(client, launch, { run = execute, claudeSettings } = {}) {
-  if (client === 'manual') return { client, config: { mcpServers: { 'agent-post': launch } } };
+  if (client === 'manual') return { client, config: { mcpServers: { 'clanker': launch } } };
   if (!['codex', 'claude'].includes(client)) throw new Error('Client must be codex, claude, or manual');
   let existing;
   if (client === 'codex') {
     let output;
-    try { output = run('codex', ['mcp', 'get', 'agent-post', '--json']); }
+    try { output = run('codex', ['mcp', 'get', 'clanker', '--json']); }
     catch (error) {
       if (error.code === 'ENOENT') throw new Error('Codex CLI is not installed. Choose manual setup or install Codex first.');
       const reason = String(error.stderr || error.message);
@@ -35,15 +35,15 @@ export function registerClient(client, launch, { run = execute, claudeSettings }
     }
     if (output) { const entry = JSON.parse(output); existing = entry.transport; }
   } else if (claudeSettings && existsSync(claudeSettings)) {
-    existing = JSON.parse(readFileSync(claudeSettings, 'utf8')).mcpServers?.['agent-post'];
+    existing = JSON.parse(readFileSync(claudeSettings, 'utf8')).mcpServers?.['clanker'];
   }
   if (existing) {
-    if (existing.command === launch.command && JSON.stringify(existing.args || []) === JSON.stringify(launch.args) && existing.env?.AGENT_POST_HOME === launch.env.AGENT_POST_HOME) return { client, state: 'already configured' };
-    throw new Error(`An agent-post entry already exists in ${client} with different settings. It was left unchanged. Remove or rename it in that app before rerunning setup.`);
+    if (existing.command === launch.command && JSON.stringify(existing.args || []) === JSON.stringify(launch.args) && existing.env?.CLANKER_HOME === launch.env.CLANKER_HOME) return { client, state: 'already configured' };
+    throw new Error(`An clanker entry already exists in ${client} with different settings. It was left unchanged. Remove or rename it in that app before rerunning setup.`);
   }
   const args = client === 'codex'
-    ? ['mcp', 'add', 'agent-post', '--env', `AGENT_POST_HOME=${launch.env.AGENT_POST_HOME}`, '--', launch.command, ...launch.args]
-    : ['mcp', 'add', '--transport', 'stdio', '--scope', 'user', 'agent-post', '--env', `AGENT_POST_HOME=${launch.env.AGENT_POST_HOME}`, '--', launch.command, ...launch.args];
+    ? ['mcp', 'add', 'clanker', '--env', `CLANKER_HOME=${launch.env.CLANKER_HOME}`, '--', launch.command, ...launch.args]
+    : ['mcp', 'add', '--transport', 'stdio', '--scope', 'user', 'clanker', '--env', `CLANKER_HOME=${launch.env.CLANKER_HOME}`, '--', launch.command, ...launch.args];
   try { run(client, args); }
   catch (error) { throw new Error(`Could not connect ${client}: ${String(error.stderr || error.message).trim().slice(0, 400)}`); }
   return { client, state: 'configured' };
@@ -58,5 +58,5 @@ export async function startInstalledService(home, { formula, run = execute, wait
     catch { /* brew services returns before cloudflared finishes starting. */ }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
-  throw new Error('Background service was registered but did not become ready within 60 seconds. Run agent-post status and inspect the Homebrew service logs.');
+  throw new Error('Background service was registered but did not become ready within 60 seconds. Run clanker status and inspect the Homebrew service logs.');
 }

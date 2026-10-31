@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { newIdentity, hash } from './protocol.js';
 
-export const defaultHome = () => process.env.AGENT_POST_HOME || join(homedir(), '.agent-post');
+export const defaultHome = () => process.env.CLANKER_HOME || join(homedir(), '.clanker');
 export class Store {
   constructor(home, name) {
     this.home = home;

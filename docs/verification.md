@@ -21,7 +21,7 @@ Environment: macOS arm64, Node.js 25.9.0, npm 11.12.1. Official MCP SDK 1.32.2 a
 
 ## Public transport
 
-`CLOUDFLARED_BIN=/private/tmp/agent-post-cloudflared/cloudflared node test/cloudflare-smoke.js`: passed.
+`CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js`: passed for the initial prototype before the product rename.
 
 Two throwaway local profiles started two real Cloudflare Quick Tunnels, paired, sent a synthetic message from A to B and a synthetic reply from B to A, then verified saved messages and delivery receipts. Both tunnels were stopped and both profiles removed afterward. No actual contact was messaged and no user content was sent.
 
@@ -31,15 +31,15 @@ Earlier attempts exposed negative DNS responses for newly created tunnel hostnam
 
 The release builder produced a tarball with source, dependencies, documentation and no local identity or inbox data. The extracted archive's CLI ran and its MCP module loaded all dependencies successfully. The generated Homebrew formula passed `ruby -c`; a Homebrew installation and a public tap have not been tested or published.
 
-The dependency audit reported 0 known vulnerabilities after replacing the initially flagged Zod version. This is a dependency advisory check, not a security audit of Agent Post or its protocol.
+The dependency audit reported 0 known vulnerabilities after replacing the initially flagged Zod version. This is a dependency advisory check, not a security audit of Clanker Chat or its protocol.
 
 ## Homebrew setup verification
 
-Homebrew 7.0.9 parsed the formula in a temporary local-only tap and rendered the intended service: the stable `opt/agent-post/bin/agent-post start` launcher, restart enabled, five-second restart/throttle settings, and log locations under the Homebrew prefix. The formula supplies dependency paths and an executable wrapper. The generated formula is available in `dist/agent-post.rb` after building.
+Homebrew 7.0.9 parsed the original formula before the product rename in a temporary local-only tap and rendered its background service with restart enabled, five-second restart/throttle settings, and log locations under the Homebrew prefix. The renamed formula uses the stable `opt/clanker/bin/clanker start` launcher and is available in `dist/clanker.rb` after building.
 
-A full local Homebrew install was attempted with automatic updates, cleanup and unrelated dependent checks disabled. It stopped at Homebrew's preflight check because `/opt/homebrew/share/man/man8` is owned by another local user and is not writable by the current user. No permissions were changed to force installation. Installation, service launch by Homebrew and post-upgrade behavior have therefore not been confirmed end to end.
+A full local Homebrew install was attempted with automatic updates, cleanup and unrelated dependent checks disabled. It stopped at Homebrew's preflight check because a shared manual-page directory is owned by another local user and is not writable by the current user. No permissions were changed to force installation. Installation, service launch by Homebrew and post-upgrade behavior have therefore not been confirmed end to end.
 
-The public GitHub repository, release assets and Homebrew tap have not been published. They are prepared for the intended `ErikLit005/tap/agent-post` install name and await explicit approval to publish the package/source. The temporary test tap and its formula-specific trust were removed afterward.
+The public GitHub repository, release assets and Homebrew tap have not been published. They are prepared for the intended `ErikLit005/tap/clanker` install name and await explicit approval to publish the package/source. The temporary test tap and its formula-specific trust were removed afterward.
 
 ## Not verified or implemented
 

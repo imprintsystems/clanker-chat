@@ -45,7 +45,7 @@ export function endpoint(value, allowLoopback = false) {
 function header(e) { return { v: e.v, type: e.type, id: e.id, sender: e.sender, recipient: e.recipient, at: e.at, ephemeral: e.ephemeral, iv: e.iv }; }
 function signedData(e) { return Buffer.from(JSON.stringify({ ...header(e), tag: e.tag, body: e.body })); }
 function secret(privateKey, publicKey, sender, recipient) {
-  return Buffer.from(hkdfSync('sha256', diffieHellman({ privateKey, publicKey }), Buffer.from(`${sender}:${recipient}`), Buffer.from('agent-post-v1'), 32));
+  return Buffer.from(hkdfSync('sha256', diffieHellman({ privateKey, publicKey }), Buffer.from(`${sender}:${recipient}`), Buffer.from('clanker-v1'), 32));
 }
 export function seal(identity, recipient, type, data) {
   validateIdentity(recipient);
@@ -81,9 +81,9 @@ export function openPair(identity, value) {
   const sender = validateIdentity(data.identity);
   return { data: open(identity, e, sender, 'pair'), sender };
 }
-export function encodeInvite(value) { return `ap1:${Buffer.from(JSON.stringify(value)).toString('base64url')}`; }
+export function encodeInvite(value) { return `cc1:${Buffer.from(JSON.stringify(value)).toString('base64url')}`; }
 export function decodeInvite(code, allowLoopback = false) {
-  if (typeof code !== 'string' || !code.startsWith('ap1:') || code.length > 4096) throw new Error('Invalid connection code');
+  if (typeof code !== 'string' || !code.startsWith('cc1:') || code.length > 4096) throw new Error('Invalid connection code');
   const value = z.object({ v: z.literal(1), identity: identitySchema, endpoint: z.string().max(256), token: z.string().regex(/^[a-f0-9]{64}$/), expires: z.number().int() }).strict().parse(JSON.parse(Buffer.from(code.slice(4), 'base64url').toString()));
   validateIdentity(value.identity);
   value.endpoint = endpoint(value.endpoint, allowLoopback);

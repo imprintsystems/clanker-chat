@@ -4,12 +4,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
-import { AgentPost } from '../src/daemon.js';
+import { ClankerChat } from '../src/daemon.js';
 
 const home = mkdtempSync(join(tmpdir(), 'ap-live-'));
 const cloudflared = process.env.CLOUDFLARED_BIN || 'cloudflared';
-const a = new AgentPost({ home: join(home, 'a'), name: 'Synthetic A', cloudflared });
-const b = new AgentPost({ home: join(home, 'b'), name: 'Synthetic B', cloudflared });
+const a = new ClankerChat({ home: join(home, 'a'), name: 'Synthetic A', cloudflared });
+const b = new ClankerChat({ home: join(home, 'b'), name: 'Synthetic B', cloudflared });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const until = async check => { const start = Date.now(); while (Date.now() - start < 60_000) { if (await check()) return; await pause(500); } throw new Error('Live tunnel check timed out'); };
 try {

@@ -7,33 +7,33 @@ import { homedir } from 'node:os';
 import { defaultHome } from './store.js';
 import { localCall } from './local.js';
 
-const help = `agent-post 0.1.0
+const help = `clanker 0.1.0
 
-agent-post start --name Erik       Start local daemon and a Quick Tunnel
-agent-post setup                   Set name, start background service, connect an agent
-agent-post setup --name Erik --client codex
-agent-post start --local           Local-only test mode, no tunnel
-agent-post invite                 Print a single-use code (valid 10 minutes)
-agent-post pair                    Paste a friend's code on stdin
-agent-post pair <code>             Pair using a code (visible in shell history)
-agent-post send <peer> <text>       Send a message
-agent-post send <peer> --file note.txt --kind session
-agent-post send <peer> <text> --kind task_request
-agent-post inbox [--unread]        Read received messages
-agent-post outbox                  Inspect queued/delivered messages
-agent-post watch                   Print incoming messages until interrupted
-agent-post read <id>               Mark a message read
-agent-post approve <id>            Locally approve an incoming task request
-agent-post decline <id>            Locally decline an incoming task request
-agent-post complete <id> <result>  Reply to an approved request
-agent-post peers                   List paired contacts
-agent-post revoke <peer>           Block a peer and cancel queued messages
-agent-post retry                   Retry queued deliveries now
-agent-post status                  Show connection and delivery status
-agent-post mcp                     Run MCP over stdin/stdout
-agent-post config                  Print MCP JSON config for this installation
+clanker start --name Erik       Start local daemon and a Quick Tunnel
+clanker setup                   Set name, start background service, connect an agent
+clanker setup --name Erik --client codex
+clanker start --local           Local-only test mode, no tunnel
+clanker invite                 Print a single-use code (valid 10 minutes)
+clanker pair                    Paste a friend's code on stdin
+clanker pair <code>             Pair using a code (visible in shell history)
+clanker send <peer> <text>       Send a message
+clanker send <peer> --file note.txt --kind session
+clanker send <peer> <text> --kind task_request
+clanker inbox [--unread]        Read received messages
+clanker outbox                  Inspect queued/delivered messages
+clanker watch                   Print incoming messages until interrupted
+clanker read <id>               Mark a message read
+clanker approve <id>            Locally approve an incoming task request
+clanker decline <id>            Locally decline an incoming task request
+clanker complete <id> <result>  Reply to an approved request
+clanker peers                   List paired contacts
+clanker revoke <peer>           Block a peer and cancel queued messages
+clanker retry                   Retry queued deliveries now
+clanker status                  Show connection and delivery status
+clanker mcp                     Run MCP over stdin/stdout
+clanker config                  Print MCP JSON config for this installation
 
-Options: --home <path> (or AGENT_POST_HOME), --name <name>, --port <port>,
+Options: --home <path> (or CLANKER_HOME), --name <name>, --port <port>,
          --file <path>, --kind message|session|task_request, --thread <uuid>,
          --reply-to <uuid>, --unread, --after <sequence>, --local, --help
          --client codex|claude|manual, --no-service (for source checkouts)
@@ -56,7 +56,7 @@ async function main() {
   if (values.help || !command || command === 'help') return console.log(help);
   if (command === 'config') {
     const { launchCommand } = await import('./setup.js');
-    return output({ mcpServers: { 'agent-post': launchCommand(home, fileURLToPath(import.meta.url)) } });
+    return output({ mcpServers: { 'clanker': launchCommand(home, fileURLToPath(import.meta.url)) } });
   }
   if (command === 'setup') {
     const { readProfile, saveProfile, launchCommand, registerClient, startInstalledService } = await import('./setup.js');
@@ -72,24 +72,24 @@ async function main() {
     if (!name) throw new Error('Provide your name with --name, or run setup in an interactive terminal.');
     client ||= 'manual';
     if (!['codex', 'claude', 'manual'].includes(client)) throw new Error('Choose --client codex, claude, or manual.');
-    if (!values['no-service'] && home !== resolve(homedir(), '.agent-post')) throw new Error('Homebrew service uses ~/.agent-post. For a custom --home, use --no-service and start the daemon separately.');
-    if (!values['no-service'] && !process.env.AGENT_POST_BREW_FORMULA) throw new Error('Install through Homebrew first, or use setup --no-service from this checkout.');
+    if (!values['no-service'] && home !== resolve(homedir(), '.clanker')) throw new Error('Homebrew service uses ~/.clanker. For a custom --home, use --no-service and start the daemon separately.');
+    if (!values['no-service'] && !process.env.CLANKER_BREW_FORMULA) throw new Error('Install through Homebrew first, or use setup --no-service from this checkout.');
     const profile = saveProfile(home, { name });
     const connection = registerClient(client, launchCommand(home, fileURLToPath(import.meta.url)), { claudeSettings: resolve(homedir(), '.claude.json') });
-    const service = values['no-service'] ? { state: 'not started', next: 'Run agent-post start separately.' } : await startInstalledService(home, { formula: process.env.AGENT_POST_BREW_FORMULA });
-    output({ name: profile.name, ...service, agent: connection, next: 'Restart your agent app if needed, then run agent-post invite or agent-post pair.' });
+    const service = values['no-service'] ? { state: 'not started', next: 'Run clanker start separately.' } : await startInstalledService(home, { formula: process.env.CLANKER_BREW_FORMULA });
+    output({ name: profile.name, ...service, agent: connection, next: 'Restart your agent app if needed, then run clanker invite or clanker pair.' });
     return;
   }
   if (command === 'start') {
-    const { AgentPost } = await import('./daemon.js');
+    const { ClankerChat } = await import('./daemon.js');
     const port = values.port === undefined ? 0 : Number(values.port);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
     const { readProfile } = await import('./setup.js');
     const name = values.name || readProfile(home).name;
     if (name !== undefined && (!name.trim() || name.length > 80)) throw new Error('Name must have 1 to 80 characters');
-    const daemon = new AgentPost({ home, name, port, local: !!values.local, cloudflared: process.env.CLOUDFLARED_BIN });
-    daemon.on('warning', value => console.error(`agent-post: ${value}`));
-    daemon.on('message', value => console.error(`New Agent Post message ${value.id}. Read it with agent-post inbox.`));
+    const daemon = new ClankerChat({ home, name, port, local: !!values.local, cloudflared: process.env.CLOUDFLARED_BIN });
+    daemon.on('warning', value => console.error(`clanker: ${value}`));
+    daemon.on('message', value => console.error(`New Clanker Chat message ${value.id}. Read it with clanker inbox.`));
     let closing = false;
     const stop = async () => { if (closing) return; closing = true; await daemon.close(); };
     daemon.on('tunnelStopped', () => { process.exitCode = 1; stop(); });
@@ -118,7 +118,7 @@ async function main() {
       let after = Number(values.after || 0);
       while (true) { const rows = await call('wait', { after, seconds: 20 }); for (const row of rows) { output(row); after = row.seq; } }
     }
-    default: throw new Error(`Unknown command: ${command}. Run agent-post --help.`);
+    default: throw new Error(`Unknown command: ${command}. Run clanker --help.`);
   }
 }
-main().catch(error => { console.error(`agent-post: ${error.message}${['ECONNREFUSED', 'ENOENT'].includes(error.code) ? '. Start the daemon with agent-post start.' : ''}`); process.exitCode = 1; });
+main().catch(error => { console.error(`clanker: ${error.message}${['ECONNREFUSED', 'ENOENT'].includes(error.code) ? '. Start the daemon with clanker start.' : ''}`); process.exitCode = 1; });
