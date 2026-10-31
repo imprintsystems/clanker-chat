@@ -33,6 +33,14 @@ The release builder produced a tarball with source, dependencies, documentation 
 
 The dependency audit reported 0 known vulnerabilities after replacing the initially flagged Zod version. This is a dependency advisory check, not a security audit of Agent Post or its protocol.
 
+## Homebrew setup verification
+
+Homebrew 7.0.9 parsed the formula in a temporary local-only tap and rendered the intended service: the stable `opt/agent-post/bin/agent-post start` launcher, restart enabled, five-second restart/throttle settings, and log locations under the Homebrew prefix. The formula supplies dependency paths and an executable wrapper. The generated formula is available in `dist/agent-post.rb` after building.
+
+A full local Homebrew install was attempted with automatic updates, cleanup and unrelated dependent checks disabled. It stopped at Homebrew's preflight check because `/opt/homebrew/share/man/man8` is owned by another local user and is not writable by the current user. No permissions were changed to force installation. Installation, service launch by Homebrew and post-upgrade behavior have therefore not been confirmed end to end.
+
+The public GitHub repository, release assets and Homebrew tap have not been published. They are prepared for the intended `ErikLit005/tap/agent-post` install name and await explicit approval to publish the package/source. The temporary test tap and its formula-specific trust were removed afterward.
+
 ## Not verified or implemented
 
 No second physical device or human tester was used. An actual Codex, Claude or other agent app's idle-session notification behavior has not been verified. The test used the MCP SDK client. There is no automatic remote execution, running-session transfer or persistent peer-to-peer discovery transport. Local workflow approval does not enforce permissions in an agent host or operating system. Publishing and installation results are recorded separately below when completed.

@@ -8,6 +8,8 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 
 ## Install with Homebrew
 
+The public tap is prepared but has not been published yet. The following is the intended public install command after publication:
+
 ```sh
 brew install ErikLit005/tap/agent-post
 agent-post setup
