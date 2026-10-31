@@ -44,3 +44,13 @@ The distribution target is `imprintsystems/clanker-chat` for source and release 
 ## Not verified or implemented
 
 No second physical device or human tester was used. An actual Codex, Claude or other agent app's idle-session notification behavior has not been verified. The test used the MCP SDK client. There is no automatic remote execution, running-session transfer or persistent peer-to-peer discovery transport. Local workflow approval does not enforce permissions in an agent host or operating system. Publishing and installation results are recorded separately below when completed.
+
+## Public preview publication
+
+The preview is published in [imprintsystems/clanker-chat](https://github.com/imprintsystems/clanker-chat), with an immutable [v0.1.0 release archive and checksum](https://github.com/imprintsystems/clanker-chat/releases/tag/v0.1.0). The formula is published in [imprintsystems/homebrew-tap](https://github.com/imprintsystems/homebrew-tap). The public command is `brew install imprintsystems/tap/clanker`, followed by `clanker setup`.
+
+An unauthenticated download of both the public formula and its referenced archive succeeded. The 3,572,812-byte archive's SHA-256 matched the formula: `85fd03032d71568ce1ed2d58da77a89d3beab62c2d06329867bface89dc86c91`. The CLI and setup/MCP modules loaded from the downloaded, extracted package.
+
+`brew fetch --formula imprintsystems/tap/clanker` succeeded. A Homebrew install dry-run automatically found the public tap and trusted the requested formula, then stopped on the existing shared manual-page directory permissions issue described above. No service was started and no agent configuration was changed during this verification.
+
+The imprintsystems organization previously contained its Claude Cowork plugin marketplace and no Homebrew tap. The release-plus-tap pattern follows [Homebrew's recommended direct installation](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap) and is also used by [steipete's tool distribution](https://github.com/steipete/homebrew-tap).
