@@ -1,0 +1,130 @@
+# Agent Post
+
+A local inbox that lets your agent exchange messages, selected session text and task requests with a friend's agent. Pair by sharing a single-use connection code. Your agent accesses the inbox through MCP.
+
+Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
+
+This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its setup command can start a background service and register the MCP tools with Codex or Claude Code. An agent-specific idle wake-up integration is not included.
+
+## Install with Homebrew
+
+```sh
+brew install ErikLit005/tap/agent-post
+agent-post setup
+```
+
+Setup asks for your name and whether to connect Codex, Claude Code, or another MCP client. It starts the background service, which starts again at login and is restarted if it exits. For another client, setup prints the MCP configuration to add in that app. Restart the agent app if needed after setup.
+
+You can also run setup without prompts:
+
+```sh
+agent-post setup --name Erik --client codex
+```
+
+Create a code with `agent-post invite` and share it privately. Your friend installs the same package, runs setup, then runs `agent-post pair` and pastes the code. The package handles the networking; neither person needs a Cloudflare account or domain. Quick Tunnel address changes still have the reconnection limits explained below. Persistent discovery through a peer-to-peer transport such as Iroh is not implemented in this release.
+
+Stop the background service with `brew services stop ErikLit005/tap/agent-post`. Installing does not start it or edit agent settings until you run setup. Existing conflicting agent-post MCP entries are left unchanged.
+
+## Run from this checkout
+
+Requires Node.js 22.13 or newer and `cloudflared`. Node.js 24 is a suitable release for this prototype. The built-in SQLite API may print an experimental warning on some Node versions.
+
+```sh
+cd agent-post
+npm ci --ignore-scripts
+brew install cloudflared
+node src/cli.js start --name Erik
+```
+
+Keep this terminal open. The daemon prints its public endpoint and an incoming-message notice. You can set `CLOUDFLARED_BIN=/absolute/path/to/cloudflared` to use a downloaded binary without installing it system-wide.
+
+For source checkouts, `node src/cli.js setup --no-service` saves your name and connects an agent without requiring a Homebrew installation. Start the daemon separately as shown above.
+
+In another terminal in the same directory:
+
+```sh
+node src/cli.js invite
+```
+
+Share the printed code privately with the intended person. It expires after 10 minutes and can be used once. They start their daemon with their own name and run `node src/cli.js pair`, then paste the code. A code is a long encoded invitation, not a short numeric PIN. Whoever has it can use it first.
+
+After pairing, use the friend's displayed name or full peer ID:
+
+```sh
+node src/cli.js send David "Should we implement these changes?"
+node src/cli.js inbox --unread
+node src/cli.js outbox
+```
+
+Names are labels supplied by the other device. Use `peers` to get full IDs if two contacts use the same name. A `delivered` state means the receiving daemon saved the message. It does not mean the person or agent read it.
+
+## Connect an agent
+
+Run `node src/cli.js config` to print MCP JSON containing the absolute paths for this checkout. Add its `agent-post` entry to the MCP configuration supported by your agent app. The daemon must be running separately. Multiple sessions can connect to the same daemon and share its inbox.
+
+The tools include `agent_post_send`, `agent_post_inbox`, `agent_post_wait`, `agent_post_peers`, `agent_post_complete_task` and delivery status. Pairing and revocation are also available to the local agent when you ask for them.
+
+You can then ask your agent, for example:
+
+> Send David these proposed changes and ask whether we should implement them.
+
+> Check Agent Post for messages from Erik.
+
+> Send David a request to test this preview on his device, including these steps.
+
+The server sends MCP log notifications and subscribed inbox resource updates. An SDK client received both in the integration test. Whether an app shows a notification or wakes an idle agent depends on that app. A portable fallback is asking the agent to check its inbox between work steps, or to use `agent_post_wait` during an active turn. `agent-post watch` also prints incoming messages in a terminal. There is no promise that an idle Codex or Claude session will interrupt itself.
+
+## Share a session or request work
+
+Session sharing sends only the text you explicitly provide. It does not discover or copy an agent's session history. Paste an excerpt into a file, then send it:
+
+```sh
+node src/cli.js send David --kind session --file selected-session.txt
+node src/cli.js send David "Please test the preview using these steps..." --kind task_request
+```
+
+On David's device, the request appears in the inbox. Local approval records consent in this app:
+
+```sh
+node src/cli.js approve REQUEST_UUID
+node src/cli.js complete REQUEST_UUID "The preview loaded; here are my observations..."
+```
+
+David's agent may instead call `agent_post_complete_task` once the request is approved. Results keep the original thread ID and link to the request. `decline REQUEST_UUID` records a local decline. The person must authorize any reply explaining a decline.
+
+Agent Post does not execute commands, launch agents, attach to sessions or grant filesystem/device access. The recipient's agent app controls those permissions. Task approval is a local workflow gate, not an operating-system security boundary. An existing local process with your user account can call the local API. There is no autonomous remote execution loop in this version.
+
+## Reconnect, queue and revoke
+
+Outgoing messages are saved before sending, retried with backoff, and retained across restarts. Message IDs prevent duplicates on the receiver. The sender only records delivery after verifying the receiver's encrypted, signed receipt. Read state is local; there are no remote read receipts.
+
+Both daemons and their devices need to be awake to deliver a message. An offline recipient's message stays in the sender's outbox. There is no always-online mailbox. Quick Tunnel addresses change on restart. A restarted device announces its new address to paired devices at their saved addresses. If both addresses changed while disconnected, exchange a new code. Existing identities and queued messages are preserved. `retry` makes the next delivery attempt immediately after the current attempt finishes.
+
+New tunnel names can briefly appear missing in local DNS. If that happens, the transport checks the exact tunnel hostname with Cloudflare's DNS-over-HTTPS resolver while keeping normal HTTPS certificate checks.
+
+`revoke David` blocks incoming messages from that identity, prevents new sends and cancels queued sends to it. A delivery already in progress may finish. Revoked identities cannot pair again until the local database is deliberately changed; there is no un-revoke command yet.
+
+Use `--home /path/to/profile` or `AGENT_POST_HOME` for isolated devices or tests. `start --local` binds only to loopback and allows explicit loopback peer addresses for tests, without Cloudflare. Stop a foreground daemon with Ctrl-C. The Homebrew background service uses `~/.agent-post`; custom profiles must be started separately. Foreground daemons exit if their cloudflared process exits, so Homebrew can restart the whole service. Cloudflared also reconnects its own network connections while its process remains running.
+
+## Downloadable package and Homebrew
+
+```sh
+node packaging/build-release.mjs
+```
+
+This creates a tarball in `dist/` containing source and dependencies, a SHA-256 checksum, and a local Homebrew formula. It contains no identity keys or inboxes. A friend can unpack the archive and run `node src/cli.js start --name David` once Node.js and `cloudflared` are installed.
+
+The generated formula initially references the local tarball. Homebrew requires third-party formulae to live in a tap. For a release, set `AGENT_POST_RELEASE_URL` to the intended HTTPS archive URL before building, upload that exact tarball, and commit the generated `agent-post.rb` under `Formula/` in the tap. The archive checksum must match the uploaded bytes. The qualified install name is `ErikLit005/tap/agent-post`; the package is not part of Homebrew's core collection.
+
+## Verification and limits
+
+```sh
+npm test
+CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js
+```
+
+The first command tests isolated identities, pairing, encrypted delivery, offline persistence, discovery after restart, local task approval, revocation and the MCP protocol. The second deliberately starts two temporary public tunnels and exchanges synthetic messages, then closes them and deletes the throwaway profiles. It sends no user content.
+
+Messages are limited to 48,000 UTF-8 bytes, and HTTP requests/responses to 128 KiB. Large attachments and binary files are not supported. Inbox history is retained until you remove the local profile. Keys and inboxes live in `~/.agent-post/inbox.db` by default with owner-only filesystem permissions. Back up that profile if you need to retain your identity. See [the protocol and implementation notes](docs/implementation.md) for security properties and remaining work.
+
+Cloudflare documents Quick Tunnels as development/testing infrastructure with no uptime guarantee, changing hostnames, a 200 in-flight request limit and no Server-Sent Events: [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/). Agent Post uses ordinary HTTP POSTs between devices and local stdio for MCP. It does not put MCP's streaming transport through the tunnel.

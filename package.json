@@ -1,0 +1,12 @@
+{
+  "name": "agent-post-local",
+  "version": "0.1.0",
+  "description": "A local, paired inbox for agents, with an MCP interface and optional Cloudflare Quick Tunnels.",
+  "type": "module",
+  "private": true,
+  "bin": { "agent-post": "./src/cli.js" },
+  "engines": { "node": ">=22.13.0" },
+  "scripts": { "test": "node --test test/*.test.js", "start": "node src/cli.js start" },
+  "dependencies": { "@modelcontextprotocol/sdk": "^1.32.2", "zod": "^4.6.7" },
+  "license": "UNLICENSED"
+}
