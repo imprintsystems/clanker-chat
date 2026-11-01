@@ -12,9 +12,11 @@ import { authorizeClient } from './access.js';
 import { VERSION } from './version.js';
 import { CodexNotifications } from './notifications.js';
 import { Discussions } from './discussions.js';
+import { overview, fullMessage, summarize, peerNames } from './overview.js';
+import { Updates } from './updates.js';
 
 const sendSchema = z.object({ to: z.string().min(1), text, kind: z.enum(['message', 'session', 'task_request']).default('message'), thread: z.string().uuid().optional(), replyTo: z.string().uuid().optional() }).strict();
-const listSchema = z.object({ unread: z.boolean().optional(), after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).optional(), direction: z.enum(['in', 'out']).optional() }).strict();
+const listSchema = z.object({ unread: z.boolean().optional(), after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).optional(), direction: z.enum(['in', 'out']).optional(), preview: z.boolean().optional() }).strict();
 const peerName = z.string().min(1).max(100);
 const messageId = z.string().uuid();
 
@@ -39,6 +41,8 @@ export class ClankerChat extends EventEmitter {
       this.store = new Store(home, name);
       this.discussions = new Discussions(home, this.store, this.options.discussions);
       this.notifications = new CodexNotifications(home, this.store, { ...this.options.notifications, discussions:this.discussions });
+      this.updates = new Updates(this.store, { check: !!this.options.updateCheck, ...this.options.updates });
+      this.upgraded = this.updates.start();
       this.remote = http.createServer((req, res) => this.remoteRequest(req, res));
       this.remote.requestTimeout = 15_000; this.remote.headersTimeout = 10_000; this.remote.maxConnections = 32;
       await listen(this.remote, { host: '127.0.0.1', port });
@@ -48,7 +52,7 @@ export class ClankerChat extends EventEmitter {
       else await this.startTunnel();
       if (this.stopping) throw new Error('Daemon stopped during startup');
       this.timer = setInterval(() => this.tick(), 2_000);
-      this.notificationTimer = setInterval(() => this.notifications.tick().catch(error => this.emit('warning', error.message)), 2_000);
+      this.notificationTimer = setInterval(() => { this.notifications.tick().catch(error => this.emit('warning', error.message)); this.updates.tick().catch(() => {}); }, 2_000);
       this.tick();
       return this;
     } catch (error) { await this.close(); throw error; }
@@ -139,6 +143,8 @@ export class ClankerChat extends EventEmitter {
       case 'notification_unregister': return this.notifications.unregister(args.session,args.lease);
       case 'notifications': return this.notifications.status();
       case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION };
+      case 'overview': return overview(this.store, this.discussions, { online: this.endpointReady, update: this.updates.notice(args.consume !== false) });
+      case 'message': return fullMessage(this.store, messageId.parse(args.id));
       case 'peers': return this.store.peers();
       case 'invite': {
         if (!this.endpointReady) throw new Error('Tunnel is not running');
@@ -167,7 +173,7 @@ export class ClankerChat extends EventEmitter {
         this.store.insert(peer.id, 'out', payload); this.tick();
         return { id: payload.id, thread: payload.thread, state: 'queued' };
       }
-      case 'inbox': return this.store.list(listSchema.parse(args));
+      case 'inbox': { const { preview, ...query } = listSchema.parse(args); return this.list(query, preview); }
       case 'read': {
         const id = messageId.parse(args.id);
         const result = this.store.db.prepare("UPDATE messages SET read=1 WHERE id=? AND direction='in'").run(id);
@@ -177,13 +183,14 @@ export class ClankerChat extends EventEmitter {
       case 'wait': {
         const after = z.number().int().nonnegative().default(0).parse(args.after);
         const seconds = z.number().min(0).max(20).default(20).parse(args.seconds);
-        const rows = this.store.list({ after });
+        const preview = z.boolean().optional().parse(args.preview);
+        const rows = this.list({ after }, preview);
         if (rows.length) return rows;
         await new Promise(resolve => {
           const done = () => { clearTimeout(timer); this.off('message', done); this.off('closing', done); resolve(); };
           const timer = setTimeout(done, seconds * 1000); this.once('message', done); this.once('closing', done);
         });
-        return this.store.list({ after });
+        return this.list({ after }, preview);
       }
       case 'revoke': return this.store.revoke(peerName.parse(args.peer));
       case 'decide': {
@@ -208,6 +215,12 @@ export class ClankerChat extends EventEmitter {
       case 'retry': this.store.db.prepare("UPDATE messages SET retryAt=0 WHERE state='queued'").run(); this.tick(); return { retrying: true };
       default: throw new Error('Unknown command');
     }
+  }
+  list(query, preview) {
+    const rows = this.store.list(query);
+    if (!preview) return rows;
+    const names = peerNames(this.store);
+    return rows.map(row => summarize(row, names));
   }
   tick() {
     if (this.busy || this.stopping || !this.endpointReady) return this.busy;

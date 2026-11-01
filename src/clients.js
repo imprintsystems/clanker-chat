@@ -167,10 +167,24 @@ export function applyClientSelection(home, selected, launch, clients, options = 
       continue;
     }
     const grant = clientGrant(home, client.id, client.label);
-    const entry = { ...launch, env: { ...launch.env, CLANKER_CLIENT_ID: client.id, CLANKER_CLIENT_TOKEN: grant.token, ...(['codex','claude','hermes','omp'].includes(client.id)?{CLANKER_NOTIFICATIONS:'1'}:{}) } };
-    try { configureClient(client, entry, home, options); enableClient(home, client.id, grant); results.push({ id: client.id, label: client.label, state: 'connected' }); }
+    try { configureClient(client, clientEntry(launch, client.id, grant), home, options); enableClient(home, client.id, grant); results.push({ id: client.id, label: client.label, state: 'connected' }); }
     catch (error) { results.push({ id: client.id, label: client.label, state: 'error', note: /different clanker|could not be read|unsupported|changed during/.test(error.message) ? error.message : 'Could not save this connection. Existing settings were kept.' }); }
   }
   if (!selected.length) { const state = readAccess(home); state.enforced = true; writeAccess(home, state); }
+  return results;
+}
+function clientEntry(launch, id, grant) {
+  return { ...launch, env: { ...launch.env, CLANKER_CLIENT_ID: id, CLANKER_CLIENT_TOKEN: grant.token, ...(['codex','claude','hermes','omp'].includes(id)?{CLANKER_NOTIFICATIONS:'1'}:{}) } };
+}
+// After an upgrade, rewrite the connections the user already chose so new
+// hooks and plugins arrive without running setup again. Nothing else changes.
+export function refreshClients(home, launch, clients, options = {}) {
+  const access = readAccess(home); const results = [];
+  for (const client of clients) {
+    const grant = access.clients[client.id];
+    if (!grant?.enabled || !client.available) continue;
+    try { configureClient(client, clientEntry(launch, client.id, grant), home, options); results.push({ id: client.id, state: 'refreshed' }); }
+    catch (error) { results.push({ id: client.id, state: 'error', note: error.message }); }
+  }
   return results;
 }

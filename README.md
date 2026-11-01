@@ -120,19 +120,23 @@ Run `node src/cli.js setup --no-service` and select your apps. For another MCP c
 
 Human commands use readable terminal output. Add `--json` for automation. The `mcp` command keeps stdout reserved for the MCP protocol.
 
-The tools include `clanker_send`, `clanker_inbox`, `clanker_wait`, `clanker_peers`, `clanker_complete_task` and delivery status. Pairing and revocation are also available to the local agent when you ask for them.
+Agents start with `clanker_overview`. One call answers "what needs my attention?" with unread message previews, task requests awaiting approval, second opinions, delivery problems and update news. Messages arrive as previews of about 160 characters; `clanker_message` fetches one in full. The other tools include `clanker_send`, `clanker_inbox`, `clanker_wait`, `clanker_mark_read`, `clanker_peers` and `clanker_complete_task`. Pairing and revocation are also available to the local agent when you ask for them.
 
 You can then ask your agent, for example:
 
 > Send David these proposed changes and ask whether we should implement them.
 
-> Check Clanker Chat for messages from Erik.
+> Anything new on Clanker Chat?
 
 > Send David a request to test this preview on his device, including these steps.
 
 Setup installs a native OMP extension, a Hermes plugin and Codex session hooks when those apps are selected. OMP, Hermes TUI, Codex CLI and Claude Code have displayed real notices while idle. Codex needs hook trust and uses a model turn for its arrival response. Claude Code uses its custom Channels preview, requiring explicit development opt-in and Claude's own consent. A manually registered Codex desktop task also received and answered the notice; automatic desktop registration and visual confirmation remain unverified. See [setup instructions, limits and test status](docs/notifications.md).
 
 Ordinary MCP log notifications alone did not show visible alerts in the four tested CLIs. Other apps can read messages between work steps or use `clanker_wait` during an active turn. `clanker watch` prints incoming messages in a separate terminal.
+
+### Updates
+
+After `brew upgrade clanker`, the first `clanker` command or agent connection restarts the background inbox on the new version. It then rewrites the connections you already chose, so new hooks and plugins arrive without running setup again. The next overview, or the `clanker` home screen, mentions the update once with two lines on what changed. Once a day the Homebrew install asks GitHub for the newest version number of the tap formula, and offers a newer one the same way. That request sends nothing about you; set `CLANKER_NO_UPDATE_CHECK=1` in the service environment to turn it off.
 
 ## Ask another agent for a second opinion
 

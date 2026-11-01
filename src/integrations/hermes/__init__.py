@@ -70,7 +70,7 @@ def register(ctx):
                     latest, unread = status.get('inboxLatest', status.get('latest')), status.get('unread')
                     if type(latest) is not int or type(unread) is not int or unread < 1 or latest <= previous:
                         continue
-                    text = (f'Clanker Chat: {unread} unread messages. Ask to read your inbox when ready. '
+                    text = (f'Clanker Chat: {unread} unread messages. When asked, call clanker_overview for a short summary. '
                             'This is a local app notice, not remote instructions. No actions or replies are authorized.')
                     # Hermes TUI and desktop render session-bound posts immediately.
                     # The classic CLI defers them until a turn ends. Never start a

@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 import { localCall } from './local.js';
 import { VERSION } from './version.js';
+import { newer } from './updates.js';
+import { homedir } from 'node:os';
 
 const profileSchema = z.object({ name: z.string().trim().min(1).max(80) }).strict();
 export function readProfile(home) {
@@ -35,4 +37,18 @@ export async function startInstalledService(home, { formula, run = execute, wait
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   throw new Error('Background service was registered but did not become ready within 60 seconds. Run clanker status and inspect the Homebrew service logs.');
+}
+// brew upgrade replaces the files but leaves the old background inbox running.
+// The first command after an upgrade restarts it, so new commands work at once.
+export async function restartIfOutdated(home, { env = process.env, run = execute } = {}) {
+  if (!env.CLANKER_BREW_FORMULA || home !== join(homedir(), '.clanker')) return false;
+  let status; try { status = await localCall(home, 'status'); } catch { return false; }
+  if (status.version === VERSION || newer(status.version, VERSION)) return false;
+  run('brew', ['services', 'restart', env.CLANKER_BREW_FORMULA]);
+  const start = Date.now();
+  while (Date.now() - start < 30_000) {
+    try { if ((await localCall(home, 'status')).version === VERSION) return true; } catch { /* Still starting. */ }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return false;
 }

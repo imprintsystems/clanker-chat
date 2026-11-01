@@ -29,6 +29,7 @@ async function main() {
   const output = async (action, value, extra = {}) => values.json ? console.log(JSON.stringify(value, null, 2)) : printResult(action, value, { ...extra, ...(peerNames.includes(action) ? { peers: await localCall(home, 'peers') } : {}) });
   if (values.version) return console.log(`clanker ${VERSION}`);
   if (values.help || command === 'help') return printHelp();
+  if (!['start', 'mcp', 'notify', 'setup', 'agents', 'config'].includes(command)) { const { restartIfOutdated } = await import('./setup.js'); await restartIfOutdated(home); }
   if (!command) {
     if (!interactive) return printHelp();
     const { readProfile } = await import('./setup.js');
@@ -80,13 +81,28 @@ async function main() {
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Port must be a number from 0 to 65535.');
     const name = values.name || readProfile(home).name;
     if (name !== undefined && (!name.trim() || name.length > 80)) throw new Error('Name must have 1 to 80 characters.');
-    const daemon = new ClankerChat({ home, name, port, local: !!values.local, cloudflared: process.env.CLOUDFLARED_BIN });
+    const brew = !!process.env.CLANKER_BREW_FORMULA;
+    const daemon = new ClankerChat({ home, name, port, local: !!values.local, cloudflared: process.env.CLOUDFLARED_BIN, updateCheck: brew && !process.env.CLANKER_NO_UPDATE_CHECK });
     daemon.on('warning', value => console.error(`clanker: ${value}`));
     daemon.on('message', () => console.error('New Clanker Chat message. Run clanker inbox.'));
     let closing = false;
     const stop = async () => { if (closing) return; closing = true; await daemon.close(); };
     daemon.on('tunnelStopped', () => { process.exitCode = 1; stop(); });
     await daemon.start(); process.once('SIGINT', stop); process.once('SIGTERM', stop);
+    if (brew) {
+      // New versions may bring new hooks or plugins. Rewrite only the agents the
+      // user already chose, so an upgrade never needs setup again.
+      if (daemon.upgraded) {
+        const { discoverClients, refreshClients } = await import('./clients.js'); const { launchCommand } = await import('./setup.js');
+        for (const row of refreshClients(home, launchCommand(home, cli), discoverClients())) console.error(`clanker: ${row.id} ${row.state}${row.note ? `: ${row.note}` : ''}`);
+      }
+      // brew upgrade swaps the files under this service. Exit when the installed
+      // version changes; the service manager starts the new one.
+      const installed = process.env.CLANKER_EXECUTABLE && resolve(process.env.CLANKER_EXECUTABLE, '../../libexec/package.json');
+      if (installed) setInterval(() => {
+        try { if (JSON.parse(readFileSync(installed, 'utf8')).version !== VERSION) { console.error('clanker: a new version is installed, restarting'); stop(); } } catch { /* Mid-upgrade; check again later. */ }
+      }, 60_000).unref();
+    }
     return output('status', { ...daemon.store.status(), online: daemon.endpointReady });
   }
   const call = (action, args = {}) => localCall(home, action, args);

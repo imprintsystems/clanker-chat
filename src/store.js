@@ -12,7 +12,7 @@ export class Store {
     mkdirSync(home, { recursive: true, mode: 0o700 });
     chmodSync(home, 0o700);
     const file = join(home, 'inbox.db');
-    const fresh = !existsSync(file);
+    const fresh = !existsSync(file); this.fresh = fresh;
     this.db = new DatabaseSync(file);
     chmodSync(file, 0o600);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;

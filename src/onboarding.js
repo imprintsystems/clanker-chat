@@ -120,8 +120,11 @@ function finishSteps(selected, results) {
 }
 export async function showHome(home) {
   let status;
-  try { status = await localCall(home, 'status'); } catch { banner(); hint('Your inbox is offline. Run `clanker setup` to start it again.'); return; }
-  banner(`Hi ${clean(status.identity.name)}. ${status.unread ? c.strong(`${status.unread} unread`) : 'Nothing new'}${status.queued ? `, ${status.queued} waiting to send` : ''}.`);
+  try { status = await localCall(home, 'overview'); } catch { banner(); hint('Your inbox is offline. Run `clanker setup` to start it again.'); return; }
+  const waiting = status.delivery.waiting, asks = status.approvals.length;
+  banner(`Hi ${clean(status.you)}. ${status.unread ? c.strong(`${status.unread} unread`) : 'Nothing new'}${asks ? `, ${c.warn(`${asks} to approve`)}` : ''}${waiting ? `, ${waiting} waiting to send` : ''}.`);
+  if (status.update?.updatedTo) hint(`Updated to ${status.update.updatedTo}. ${status.update.news.join(' ')}`);
+  else if (status.update?.available) hint(`Clanker Chat ${status.update.available} is out. Get it with \`brew upgrade clanker\`.`);
   if (readAccess(home).clients.codex?.enabled) {
     const { codexAlertsInstalled } = await import('./host-install.js');
     const codex = discoverClients().find(client => client.id === 'codex');

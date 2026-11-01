@@ -105,9 +105,15 @@ test('MCP client discovers tools, reads an inbox, waits, and receives resource n
   await client.subscribeResource({ uri: 'clanker://inbox' });
   await pause(2200); // Establish notification cursor before the message arrives.
   const waiting = client.callTool({ name: 'clanker_wait', arguments: { after: 0, seconds: 5 } });
-  await a.command('send', { to: 'David', text: 'MCP notification proof.' });
-  const received = await waiting;
-  assert.equal(JSON.parse(received.content[0].text)[0].payload.text, 'MCP notification proof.');
+  const long = `MCP notification proof. ${'Reference draft line. '.repeat(40)}`;
+  await a.command('send', { to: 'David', text: long });
+  const data = result => JSON.parse(result.content[0].text);
+  const [preview] = data(await waiting);
+  assert.equal(preview.from, 'Erik'); assert.equal(preview.chars, long.length);
+  assert.ok(preview.preview.startsWith('MCP notification proof.') && preview.preview.length <= 160);
+  const overview = data(await client.callTool({ name: 'clanker_overview', arguments: {} }));
+  assert.equal(overview.unread, 1); assert.deepEqual(overview.messages.map(row => row.id), [preview.id]);
+  assert.equal(data(await client.callTool({ name: 'clanker_message', arguments: { id: preview.id } })).text, long);
   const inbox = await client.readResource({ uri: 'clanker://inbox' });
   assert.match(inbox.contents[0].text, /MCP notification proof/);
   await until(() => notices > 0 && resourceUpdates > 0);
