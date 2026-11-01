@@ -43,8 +43,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 @media (hover: hover) and (pointer: fine) { .brand:hover img { transform: rotate(-8deg); } }
 
 /* hero */
-/* the first screen holds the whole hero, centred, so nothing is left hanging below it */
-.hero { width: min(100% - 40px, 720px); min-height: calc(100svh - 68px); margin: 0 auto; padding: 24px 0 7vh; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.hero { width: min(100% - 40px, 720px); margin: 0 auto; padding-top: clamp(40px, 10vh, 112px); text-align: center; }
 .hero h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(56px, 10vw, 112px); line-height: 0.95; letter-spacing: -0.035em; }
 .say { margin-top: 10px; font-family: var(--serif); font-size: 20px; color: var(--muted); }
 .say span { font-family: var(--sans); font-style: italic; font-size: 15px; margin-left: 6px; }
