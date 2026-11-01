@@ -50,7 +50,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .def { margin: 22px auto 0; max-width: 34ch; font-size: clamp(19px, 1.2vw + 12px, 22px); line-height: 1.45; }
 
 /* the drawing: two nuts trade messages while you do nothing */
-.duo { margin: 56px auto 0; max-width: 760px; display: grid; grid-template-columns: 120px 1fr 120px; align-items: center; column-gap: 8px; }
+.duo { margin: 44px auto 0; max-width: 760px; display: grid; grid-template-columns: 120px 1fr 120px; align-items: center; column-gap: 8px; }
 .duo__side { display: grid; justify-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
 .duo__nut { width: 64px; height: 64px; transition: transform 380ms var(--ease-out); }
 .duo__nut--them { transform: scaleX(-1); }
@@ -64,7 +64,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .duo[data-play] li.on { opacity: 1; transform: none; }
 
 /* install */
-.install { margin: 36px auto 0; max-width: 620px; text-align: left; }
+.install { margin: 44px auto 0; max-width: 620px; text-align: left; }
 .install__tabs { display: flex; justify-content: center; gap: 4px; margin-bottom: 12px; }
 .install__tab { padding: 7px 14px; border-radius: 999px; font-size: 15px; color: var(--muted); transition: color 180ms ease, background-color 180ms ease; }
 .install__tab[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 500; }
