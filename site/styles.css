@@ -70,18 +70,18 @@ code { font-family: var(--mono); font-size: 0.9em; }
 @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
 
 /* install */
-.install { margin: 44px auto 0; max-width: 560px; text-align: left; }
-.install__tabs { display: flex; gap: 4px; margin-bottom: 8px; }
-.install__tab { padding: 6px 12px; border-radius: 999px; font-size: 15px; color: var(--muted); transition: color 180ms ease, background-color 180ms ease; }
-.install__tab[aria-selected="true"] { background: var(--ink); color: var(--bg); }
-@media (hover: hover) and (pointer: fine) { .install__tab[aria-selected="false"]:hover { color: var(--ink); background: var(--surface); } }
-.install__panel { position: relative; background: var(--surface); border-radius: var(--radius); padding: 16px 92px 16px 18px; min-height: 76px; display: flex; align-items: center; }
-.install__panel pre { white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.6; }
+.install { margin: 36px auto 0; max-width: 620px; text-align: left; }
+.install__tabs { display: flex; justify-content: center; gap: 4px; margin-bottom: 12px; }
+.install__tab { padding: 7px 14px; border-radius: 999px; font-size: 15px; color: var(--muted); transition: color 180ms ease, background-color 180ms ease; }
+.install__tab[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 500; }
+@media (hover: hover) and (pointer: fine) { .install__tab[aria-selected="false"]:hover { color: var(--ink); } }
+.install__panel { position: relative; background: var(--ink); color: var(--bg); border-radius: 18px; padding: 24px 128px 24px 28px; min-height: 104px; display: flex; align-items: center; box-shadow: 0 24px 48px -24px rgba(22, 22, 22, 0.55); }
+.install__panel pre { white-space: pre-wrap; word-break: break-word; font-size: 17px; line-height: 1.65; }
 .install__panel code { font-size: inherit; }
-.copy { position: absolute; right: 12px; top: 50%; translate: 0 -50%; height: 36px; padding: 0 14px; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: 14px; font-weight: 500; transition: transform 120ms var(--ease-out), opacity 180ms ease; }
+.copy { position: absolute; right: 18px; top: 50%; translate: 0 -50%; height: 44px; padding: 0 20px; border-radius: 999px; background: var(--bg); color: var(--ink); font-size: 15px; font-weight: 600; transition: transform 120ms var(--ease-out), opacity 180ms ease; }
 .copy:active { transform: scale(0.95); }
 @media (hover: hover) and (pointer: fine) { .copy:hover { opacity: 0.85; } }
-.install__meta { margin-top: 10px; font-size: 14px; color: var(--muted); text-align: center; }
+.install__meta { margin-top: 14px; font-size: 14px; color: var(--muted); text-align: center; }
 
 /* the plain sections below */
 .part { width: min(100% - 40px, var(--column)); margin: clamp(88px, 12vw, 140px) auto 0; }
@@ -126,8 +126,9 @@ code { font-family: var(--mono); font-size: 0.9em; }
 
 @media (max-width: 599px) {
   body { font-size: 16px; }
-  .install__panel { padding: 14px 14px 58px; }
-  .copy { top: auto; bottom: 12px; translate: none; }
+  .install__panel { padding: 18px 18px 72px; }
+  .install__panel pre { font-size: 15px; }
+  .copy { top: auto; bottom: 16px; translate: none; }
   .label { font-size: 26px; }
   .note { font-size: 22px; }
   .small { font-size: 17px; }
