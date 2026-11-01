@@ -1,6 +1,6 @@
-# Idle inbox alerts, 0.3.0
+# Idle inbox alerts
 
-Select apps with `clanker agents`, then open a new session in each app. Setup saves the MCP connection and the local notification integration. These integrations require Clanker 0.3.0 or later. After upgrading from 0.2.0, run `clanker agents` again and open fresh host sessions.
+Select apps with `clanker agents`, then open a new session in each app. Setup saves the MCP connection and the local notification integration. These integrations require Clanker 0.3.0 or later. From 0.3.1, the background inbox rewrites the integrations you chose after each upgrade, so running `clanker agents` again is no longer needed; open fresh host sessions afterwards. In Codex, type `/hooks` once and trust "Clanker Chat alerts", then start a new chat. Codex runs the hook with the chat's first message.
 
 | App | How the alert reaches an idle session | Live verification |
 | --- | --- | --- |

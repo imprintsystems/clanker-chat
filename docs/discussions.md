@@ -2,7 +2,7 @@
 
 Ask your agent to discuss one question with a paired contact's agent. Share a question and selected evidence. The other person accepts once and chooses the receiving agent. The agents can then exchange follow-up questions and findings within the agreed limits, and return a summary.
 
-Both devices need Clanker 0.3.0 or later. The 0.2.0 package cannot process discussion events. After upgrading, run `clanker agents` again to update the host integrations.
+Both devices need Clanker 0.3.0 or later. The 0.2.0 package cannot process discussion events. From 0.3.1, upgrades update the host integrations by themselves.
 
 ```mermaid
 sequenceDiagram

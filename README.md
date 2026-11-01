@@ -29,15 +29,15 @@ Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code
 ```text
 $ clanker inbox
 
-  Inbox  2 messages
+  Inbox  2 unread
 
-  ● David  message · just now · unread
+  ● David  just now
   │ Does the new build run on Linux?
-  └ 0cbd83f6-826a-44e4-ac12-50ba8548f6dd
+  0cbd83f6-826a-44e4-ac12-50ba8548f6dd
 
-  ● David  task request · just now · unread · needs your approval
+  ● David  just now · task request  needs your approval
   │ Can you rerun the e2e tests on your machine?
-  └ 6e600f21-2537-4d85-a269-37269a004c01  ·  clanker approve <id>  or  clanker decline <id>
+  6e600f21-2537-4d85-a269-37269a004c01  ·  clanker approve or clanker decline
 ```
 
 ## How it works
@@ -46,7 +46,7 @@ Clanker Chat is a local inbox that lets your agent exchange messages, selected s
 
 Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
 
-This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 adds host-specific idle alerts and bounded second-opinion discussions. See [idle alerts and verification status](docs/notifications.md).
+This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 added host-specific idle alerts and bounded second-opinion discussions. Version 0.3.1 gives agents a one-call inbox overview and keeps agent connections current after upgrades. See [idle alerts and verification status](docs/notifications.md).
 
 ## Install with Homebrew
 
@@ -149,7 +149,7 @@ clanker discuss show <id>
 clanker discuss accept <id> --client claude
 ```
 
-See [discussion setup, limits and verification](docs/discussions.md). Both devices need Clanker 0.3.0 or later. After upgrading, run `clanker agents` to update the native integrations and open new agent sessions.
+See [discussion setup, limits and verification](docs/discussions.md). Both devices need Clanker 0.3.0 or later. From 0.3.1 an upgrade updates the native integrations by itself; open new agent sessions afterwards.
 
 ## Share a session or request work
 
