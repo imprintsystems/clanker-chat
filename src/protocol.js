@@ -9,11 +9,24 @@ export const MAX_BODY = 128 * 1024;
 export const text = z.string().min(1).max(48_000).refine(value => Buffer.byteLength(value, 'utf8') <= 48_000, 'Text must fit within 48,000 UTF-8 bytes');
 const key = z.string().min(30).max(200);
 export const identitySchema = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().min(1).max(80), signKey: key, boxKey: key }).strict();
+export const discussionSummary = z.object({
+  conclusion: z.string().min(1).max(2000),
+  evidence: z.array(z.string().min(1).max(500)).max(6),
+  disagreements: z.array(z.string().min(1).max(500)).max(6),
+  nextStep: z.string().min(1).max(1000)
+}).strict().refine(value => Buffer.byteLength(JSON.stringify(value),'utf8') <= 12_000, 'Summary must fit within 12,000 UTF-8 bytes');
+export const discussionEvent = z.discriminatedUnion('type', [
+  z.object({ type:z.literal('proposal'), question:z.string().min(1).max(2000), scope:z.literal('supplied-evidence-only'), maxTurns:z.number().int().min(2).max(8), expiresAt:z.number().int().positive() }).strict(),
+  z.object({ type:z.literal('accept') }).strict(),
+  z.object({ type:z.literal('reply'), turn:z.number().int().min(1).max(8) }).strict(),
+  z.object({ type:z.literal('finish'), turn:z.number().int().min(1).max(8), summary:discussionSummary }).strict(),
+  z.object({ type:z.literal('stop'), reason:z.enum(['stopped','declined']) }).strict()
+]);
 export const messageSchema = z.object({
-  id: z.string().uuid(), kind: z.enum(['message', 'session', 'task_request', 'task_result']),
+  id: z.string().uuid(), kind: z.enum(['message', 'session', 'task_request', 'task_result', 'discussion']),
   text, thread: z.string().uuid(), replyTo: z.string().uuid().optional(),
-  createdAt: z.number().int().positive()
-}).strict();
+  createdAt: z.number().int().positive(), discussion:discussionEvent.optional()
+}).strict().refine(value => (value.kind === 'discussion') === !!value.discussion, 'Discussion metadata requires the discussion message kind');
 const envelopeSchema = z.object({
   v: z.literal(1), type: z.enum(['pair', 'receipt', 'message', 'announce']),
   id: z.string().uuid(), sender: z.string().length(64), recipient: z.string().length(64),

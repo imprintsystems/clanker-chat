@@ -45,7 +45,8 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   if (!noService && !env.CLANKER_BREW_FORMULA) throw new Error('This is a source checkout. Add --no-service, or install through Homebrew.');
   if (interactive && !json) {
     const chosen = all.filter(client => selected.includes(client.id)).map(client => client.label);
-    p.note(`${clean(name)}\n${chosen.length ? chosen.join(', ') : 'No agent access'}\n\nYou can change this later with clanker agents.`, 'Your setup');
+    const alerts=selected.some(id=>['codex','hermes','omp'].includes(id))?'\n\nIdle alerts add a local hook or plugin for these apps. Codex asks you to trust its hook. Accepted second-opinion discussions can start agent turns and use model usage.':'';
+    p.note(`${clean(name)}\n${chosen.length ? chosen.join(', ') : 'No agent access'}${alerts}\n\nYou can change this later with clanker agents.`, 'Your setup');
     if (!unwrap(await p.confirm({ message: agentsOnly ? 'Save these agent connections?' : 'Ready to connect?', initialValue: true }), p)) { p.cancel('Nothing changed.'); throw new Cancelled(); }
   }
   saveProfile(home, { name });
@@ -73,6 +74,9 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   }
   if (selected.includes('manual')) p.log.info('For your other app, copy the output of clanker config into its MCP settings.');
   p.log.info('Restart connected apps if needed. They may ask you to approve the new tools.');
+  if(selected.includes('codex'))p.log.info('In Codex, open /hooks and trust Clanker Chat alerts once.');
+  if(selected.includes('claude'))p.log.info('Claude custom Channels are preview-only. See clanker agent claude for the explicit development opt-in.');
+  if(selected.includes('hermes'))p.log.info('Open clanker agent hermes for Hermes TUI alerts. Use /clanker to enable alerts before the first turn. The classic CLI defers notices until a turn ends.');
   if (noService) p.log.info('Start the inbox separately with clanker start.');
   if (failures.length) { p.outro('Some apps need attention. Run clanker agents to try again.'); return response; }
   if (agentsOnly || noService) { p.outro('Connections saved.'); return response; }
@@ -98,11 +102,12 @@ export async function showHome(home) {
   try { status = await localCall(home, 'status'); } catch { console.log('  Your inbox is offline. Run clanker setup to reconnect.\n'); return; }
   line('You', status.identity.name); line('Inbox', `${status.unread} unread`); line('Outbox', `${status.queued} waiting`); console.log();
   const action = unwrap(await prompts.select({ message: 'What would you like to do?', options: [
-    { value: 'inbox', label: 'Read messages' }, { value: 'invite', label: 'Invite someone' }, { value: 'pair', label: 'Use an invite code' },
+    { value: 'inbox', label: 'Read messages' }, { value: 'discussions', label: 'Second opinions', hint:'Agent discussions and results' }, { value: 'invite', label: 'Invite someone' }, { value: 'pair', label: 'Use an invite code' },
     { value: 'agents', label: 'Manage agent access' }, { value: 'peers', label: 'Your contacts' }, { value: 'exit', label: 'Close' }
   ] }), prompts);
   if (action === 'exit') return;
   if (action === 'agents') return 'agents';
+  if (action === 'discussions') return printResult('discuss', await localCall(home,'discussion_list'));
   if (action === 'invite') { const result = await localCall(home, 'invite'); prompts.note(result.code, 'Invite code'); prompts.outro('Share privately. Valid for 10 minutes.'); return; }
   if (action === 'pair') { const code = unwrap(await prompts.text({ message: 'Paste your invite code' }), prompts); return printResult('pair', await localCall(home, 'pair', { code: code.trim() })); }
   printResult(action, await localCall(home, action));

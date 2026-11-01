@@ -31,6 +31,7 @@ test('Hermes YAML comments, models and other MCP servers survive connection, upd
   let result = applyClientSelection(home, ['hermes'], launch, [hermes]); assert.equal(result[0].state, 'connected');
   const first = yaml(readFileSync(hermes.file, 'utf8')); const token = first.mcp_servers.clanker.env.CLANKER_CLIENT_TOKEN;
   assert.equal(first.model, 'hermes-model'); assert.equal(first.mcp_servers.existing.command, 'tool'); assert.match(readFileSync(hermes.file, 'utf8'), /# My provider/);
+  assert.ok(first.plugins.enabled.includes('clanker-chat'));assert.deepEqual(first.plugins.entries['clanker-chat'].mcp_allowlist,['clanker']);assert.equal(first.plugins.entries['clanker-chat'].allow_gateway_injection,true);
   assert.equal(statSync(hermes.file).mode & 0o777, 0o600); assert.equal(statSync(join(home, 'clients.json')).mode & 0o777, 0o600);
   applyClientSelection(home, ['hermes'], launch, [hermes]); assert.equal(yaml(readFileSync(hermes.file, 'utf8')).mcp_servers.clanker.env.CLANKER_CLIENT_TOKEN, token);
   authorizeClient(home, 'hermes', token);

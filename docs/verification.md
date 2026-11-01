@@ -68,3 +68,59 @@ The 0.1.0 Homebrew install and background-service setup were successfully comple
 The actual prompt flow was driven through temporary pseudo-terminals at 100×34 and 80×24 cells. Name entry, multi-selection, confirmation and saving all completed. Screens were captured and visually inspected. The check used isolated app configurations and did not change installed agent settings. `npm audit --omit=dev` reported 0 known vulnerabilities.
 
 All 20 tests also passed from the extracted 0.2.0 package under Node.js 24.22.1, matching the Homebrew formula’s major runtime version. The packaged CLI and MCP/setup modules loaded with their bundled dependencies.
+
+## Additional resilience checks without rebooting a device
+
+The expanded source suite passed 22 tests under Node.js 24.22.1. Two added tests use disposable child processes. They force-kill test daemons and verify that identities, contacts, inbox history, read flags, queued outgoing messages and a local task approval survive. The same MCP process reconnects after its daemon returns, completes the previously approved task in its original thread, and loses access after revocation. A mock tunnel failure also makes the foreground CLI exit with code 1, allowing a service supervisor to restart it. These tests do not exercise an actual login or Homebrew supervisor restart.
+
+`CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --resilience` passed using real Cloudflare Quick Tunnels and synthetic data. Pausing only a disposable cloudflared process caused delivery to fail while the message remained queued. Resuming it delivered the message exactly once without manual retry. Replacing one disposable daemon and its tunnel preserved its identity, announced the new address to the other daemon, and restored delivery without a new invite. Both test profiles and their tunnels were cleaned up.
+
+No computer was rebooted or put to sleep. No normal Clanker service, device network settings or installed agent configuration was changed. These checks simulate interruptions; actual sleep/wake, login startup and idle notifications in each agent host remain separate checks. Recovery when both addresses change still uses a fresh invitation.
+
+## Native CLI idle-notification check, 0.2.0 baseline
+
+The interactive Codex, Claude Code, Hermes and Oh My Pi CLIs were opened against separate disposable Clanker profiles. A synthetic sender delivered one encrypted message to each profile. A transparent stdio proxy recorded the actual JSON-RPC traffic without changing it. Every host received one `notifications/message` frame from Clanker, but no host printed a visible idle alert or started a new visible response during the observation window. None made a further MCP request after that notification. These are terminal CLI results, not a Codex desktop-app test.
+
+| Host | Tested state | Observation |
+| --- | --- | --- |
+| Codex CLI 0.154.0 | Completed a real `READY` turn, then idle | Notification arrived; no visible alert or response for at least 457 seconds. |
+| Claude Code 2.1.316 | MCP connected; setup turn reported expired login | Notification arrived; no visible alert for at least 352 seconds. An authenticated model wake-up test remains blocked by the login failure. |
+| Oh My Pi 18.12.6 | MCP connected; idle after a failed local-model turn | Notification arrived; no visible alert for at least 352 seconds. The Ollama backend failed to start its model library, so a healthy model wake-up test remains unverified. |
+| Hermes v0.22.5 | MCP connected; idle at its initial input prompt | Notification arrived and appeared in `logs/agent.log`, with no visible alert or response for at least 126 seconds. No model turn was requested. |
+
+Claude's debug log explicitly reported that channel notifications were skipped because Clanker did not declare `claude/channel`. The [Claude channel contract](https://code.claude.com/docs/en/channels-reference) requires that capability and `notifications/claude/channel` events, with explicit channel opt-in. Clanker's ordinary MCP logging is a different path. Hermes's [v0.22.5 implementation](https://github.com/NousResearch/hermes-agent/blob/v0.22.5/tools/mcp_tool_health.py) forwards ordinary MCP log notifications into its logger; the observed `agent.log` entry matches that path.
+
+The 0.2.0 MCP connection adapters provide tool access. They do not establish the intended visible idle-notification experience. Private protocol captures and the detailed test summary are retained locally under the ignored `.local/idle-host-check/` directory; no credentials are included in the summary.
+
+## Host-specific idle alerts, unreleased development source
+
+The full source suite passed 29 tests under Node.js 24.22.1, including seven notification tests. These cover Codex unread-batch coalescing, metadata-only prompts, expiration, access revocation, session leases, owner-only registration endpoints, OMP display without a model turn, Hermes's native JSON-text response envelope and plugin cleanup, managed-file preservation, and Claude channel events without a permission-relay capability.
+
+Separate disposable profiles, synthetic identities and real native CLIs were used for the new live checks. No real contact received a test message. OMP 18.12.6 displayed a `clanker-chat` inbox card and notice while idle. Hermes v0.22.5 TUI displayed `Clanker Chat: 1 unread…` in its status area, then changed the count to 2 after another synthetic message. Both used display-only host APIs without asking a model to respond. Hermes classic CLI accepted the plugin post internally but held its display until a later turn; its model-injection fallback was removed from the implementation.
+
+The first Codex CLI 0.154.0 and Claude Code 2.1.316 checks stopped at native consent. The human explicitly authorized continuing on 1 November. Each of the two Clanker command hooks was reviewed and trusted individually in the disposable Codex profile. Its `SessionStart` hook registered the session automatically. After a completed `READY` turn, a synthetic encrypted message arrived; the idle CLI displayed the fixed local notice, started a model turn and responded, “A new message arrived in your local inbox.” No inbox-reading or execution tool was called.
+
+Claude's native development-channel consent was accepted for the locally built, isolated test. A fresh synthetic message appeared as a `clanker` channel event while idle, then the model responded, “You have 1 unread message in Clanker Chat. I haven't opened it or acted on it. Want me to read it?” This follow-up used a working login and supersedes the earlier expired-login limitation for this test. It does not make Clanker an approved production channel.
+
+A separate, human-authorized Codex desktop task completed a `READY` turn and became idle. The task was manually registered as a scoped notification target without changing global Codex settings. The same Clanker daemon queued its fixed notice through the normal session queue. The desktop backend recorded the notice as a new turn and returned, “You have 1 unread message in your Clanker Chat inbox.” This verifies backend delivery and a model response in a desktop-created task. It does not verify automatic desktop hook registration or visual rendering. The native app blocks computer use, so human visual confirmation remains pending. No alternate screenshot or OS-automation route was used.
+
+See [idle-alert setup and limits](notifications.md). These changes have not been published to Homebrew.
+
+The extracted development archive's CLI, notification assets and MCP/installer/launcher modules loaded successfully under Node.js 24.22.1. The generated Homebrew formula passed Ruby syntax validation. Gitleaks scanned the 36-file public-source candidate and found no leaks; private profiles and native-host captures stayed under ignored `.local/` paths. This scan does not establish that every possible secret pattern is absent.
+
+## Bounded second-opinion discussions, 1 November 2026
+
+The expanded suite passed 37 tests under Node.js 24.22.1. It includes a four-reply exchange with a required final summary, rejection of remote/agent acceptance, per-connection turn claims, stale-worker rejection, stop and deadline enforcement, app/contact revocation, restart persistence, encrypted-event deduplication and a complete two-agent exchange through real MCP connections. OMP's queued discussion turn and Hermes's metadata-only discussion injection are covered by adapter tests. Ordinary inbox notifications retain their previous display-only behavior in those adapters.
+
+A live synthetic discussion used two separate paired local profiles, Codex CLI 0.154.0 and Claude Code 2.1.316. The sender proposed a second opinion on whether a small inbox should reuse its SQLite outbox or add a central queue. The recipient accepted locally for Claude. Idle Claude received the accepted-discussion notice, called `clanker_discussion_next`, then `clanker_discussion_reply` with an early final summary. Idle Codex received the result notice, called `clanker_discussion_get`, and displayed the recommendation, supplied evidence, uncertainty and next step. Both databases recorded `completed`, the same summary, and one agent reply. Protocol captures showed only those discussion tools during the exchange. No human prompt copying or remote execution was used after acceptance.
+
+This live check does not exercise a full discussion in OMP or Hermes, nor automatic Codex desktop registration. These remain distinct from the existing native idle-display and desktop backend checks. Private evidence is retained under ignored `.local/notify-integration-check/`. No actual contact was messaged. The source remains an unreleased development build.
+
+
+## Native Hermes/OMP discussion and 0.3.0 release checks, 1 November 2026
+
+The full native test paired isolated Hermes v0.22.5 TUI and OMP 18.12.6 profiles using real signed-in OpenAI Codex model providers and synthetic product facts. OMP proposed the discussion. After one local acceptance for Hermes, idle Hermes claimed reply one and asked a focused follow-up question. Idle OMP claimed reply two and answered. Hermes claimed reply three and sent the structured final summary. Both databases recorded `completed`, three replies and identical summaries. Both agents called `clanker_discussion_get` after completion. The captured MCP calls, excluding the plugin's status polling, were discussion tools only. No actual contact was messaged.
+
+The first reused Hermes test profile reported zero MCP connections. A clean disposable profile with an explicitly selected Python runtime and its MCP dependency installed connected successfully and completed the test. This was a test-runtime setup issue; no Clanker protocol change was needed. Hermes background self-improvement also wrote a skill in its disposable profile, illustrating why the host's own background features and permissions remain outside Clanker's protocol boundary.
+
+All 37 automated tests passed again under Node.js 24.22.1 before preparing 0.3.0. Private provider credentials, test profiles, logs and transcripts remain excluded from the public source and archive. The preview release uses the existing release-archive plus Homebrew-tap distribution pattern. Upgrade both devices and run `clanker agents` again before opening new native sessions. Automatic Codex desktop registration remains unverified.

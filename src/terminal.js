@@ -14,6 +14,21 @@ export function line(label, value) { console.log(`  ${c.dim(label.padEnd(17))} $
 export function success(message) { console.log(`\n  ${c.green('✓')} ${message}\n`); }
 export function failure(message) { console.error(`\n  ${c.red('×')} ${clean(message)}\n`); }
 export function printResult(command, result) {
+  if(command==='discuss') {
+    banner('A second opinion');
+    const rows=Array.isArray(result)?result:[result];
+    if(!rows.length)console.log('  No discussions yet. Start with clanker discuss ask.\n');
+    for(const row of rows) {
+      line(row.state,row.question);line('Discussion',row.id);line('Agent',row.client||'Choose when accepting');
+      line('Scope','Supplied evidence only. No device access or execution.');
+      line('Replies',`${row.turn} of ${row.maxTurns}`);line('Deadline',new Date(row.expiresAt).toLocaleString());
+      if(row.transcript)for(const event of row.transcript){console.log(`\n  ${theme.dim(`${event.direction==='out'?'You':'Contact'} · ${event.payload.discussion.type} · ${event.state}`)}\n  ${clean(event.payload.text)}`);}
+      if(row.summary){line('Conclusion',row.summary.conclusion);for(const evidence of row.summary.evidence)line('Evidence',evidence);for(const disagreement of row.summary.disagreements)line('Disagreement',disagreement);line('Next step',row.summary.nextStep);}
+      if(row.state==='proposed')console.log(`\n  ${row.role==='recipient'?'Review with clanker discuss show, then accept with --client or decline.':'Waiting for the other person to accept.'}`);
+      console.log('');
+    }
+    return;
+  }
   if (command === 'status') {
     banner('Your local inbox');
     line('You', result.identity?.name || 'Not set up'); line('Connection', result.online ? 'Online' : 'Offline');

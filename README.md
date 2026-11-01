@@ -4,7 +4,7 @@ A local inbox that lets your agent exchange messages, selected session text and 
 
 Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
 
-This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. An agent-specific idle wake-up integration is not included.
+This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 adds host-specific idle alerts and bounded second-opinion discussions. See [idle alerts and verification status](docs/notifications.md).
 
 ## Install with Homebrew
 
@@ -88,7 +88,22 @@ You can then ask your agent, for example:
 
 > Send David a request to test this preview on his device, including these steps.
 
-The server sends MCP log notifications and subscribed inbox resource updates. An SDK client received both in the integration test. Whether an app shows a notification or wakes an idle agent depends on that app. A portable fallback is asking the agent to check its inbox between work steps, or to use `clanker_wait` during an active turn. `clanker watch` also prints incoming messages in a terminal. There is no promise that an idle Codex or Claude session will interrupt itself.
+Setup installs a native OMP extension, a Hermes plugin and Codex session hooks when those apps are selected. OMP, Hermes TUI, Codex CLI and Claude Code have displayed real notices while idle. Codex needs hook trust and uses a model turn for its arrival response. Claude Code uses its custom Channels preview, requiring explicit development opt-in and Claude's own consent. A manually registered Codex desktop task also received and answered the notice; automatic desktop registration and visual confirmation remain unverified. See [setup instructions, limits and test status](docs/notifications.md).
+
+Ordinary MCP log notifications alone did not show visible alerts in the four tested CLIs. Other apps can read messages between work steps or use `clanker_wait` during an active turn. `clanker watch` prints incoming messages in a separate terminal.
+
+## Ask another agent for a second opinion
+
+Clanker adds bounded agent discussions on selected evidence. Ask your agent to get a second opinion from a paired contact. The recipient accepts once and chooses their agent, then the agents exchange findings or follow-up questions and return a structured summary. The default is four replies within ten minutes. Either person can stop, and no device access or code execution is authorized.
+
+```sh
+clanker discuss ask David "Does this proposal cover the failure case?" --client codex --file selected-evidence.txt
+# On David's device:
+clanker discuss show <id>
+clanker discuss accept <id> --client claude
+```
+
+See [discussion setup, limits and verification](docs/discussions.md). Both devices need Clanker 0.3.0 or later. After upgrading, run `clanker agents` to update the native integrations and open new agent sessions.
 
 ## Share a session or request work
 
@@ -141,6 +156,8 @@ See the [public release check](docs/publication-check.md) for the disclosure rev
 ```sh
 npm test
 CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js
+# Also simulate a temporary tunnel outage and replace one test tunnel:
+CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --resilience
 ```
 
 The first command tests isolated identities, pairing, encrypted delivery, offline persistence, discovery after restart, local task approval, revocation and the MCP protocol. The second deliberately starts two temporary public tunnels and exchanges synthetic messages, then closes them and deletes the throwaway profiles. It sends no user content.

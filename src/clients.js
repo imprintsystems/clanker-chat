@@ -6,6 +6,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { parse as parseJSONC, modify, applyEdits } from 'jsonc-parser';
 import { parseDocument, isMap } from 'yaml';
 import { readAccess, clientGrant, enableClient, disableClient, writeAccess } from './access.js';
+import { installNotifications } from './host-install.js';
 
 export function findExecutable(name, searchPath = process.env.PATH || '') {
   for (const directory of searchPath.split(delimiter).filter(Boolean)) {
@@ -62,7 +63,7 @@ function backupConfig(client, original, home) {
     if (!existsSync(backup)) writeFileSync(backup, original, { mode: 0o600, flag: 'wx' });
   }
 }
-function atomicConfigWrite(client, original, next, home) {
+export function atomicConfigWrite(client, original, next, home) {
   const path = existsSync(client.file) ? realpathSync(client.file) : client.file;
   if ((existsSync(path) ? readFileSync(path, 'utf8') : '') !== original) throw new Error(`${client.label} settings changed during setup. Try again; nothing was overwritten.`);
   if (next === original) return;
@@ -101,6 +102,7 @@ export function configureClient(client, launch, home, { remove = false, run = ru
   if (client.format === 'codex') {
     const existing = codexEntry(client, run);
     if (!owned(existing, launch)) throw new Error('A different clanker server exists in Codex. It was left unchanged.');
+    installNotifications(client,launch,home,{remove,write:atomicConfigWrite});
     if (existsSync(client.file) && (!remove || existing)) backupConfig(client, readFileSync(client.file, 'utf8'), home);
     if (remove) { if (existing) run(client.executable, ['mcp', 'remove', 'clanker']); return; }
     run(client.executable, ['mcp', 'add', 'clanker', ...Object.entries(launch.env).flatMap(([k, v]) => ['--env', `${k}=${v}`]), '--', launch.command, ...launch.args]);
@@ -115,6 +117,22 @@ export function configureClient(client, launch, home, { remove = false, run = ru
   if (document) {
     if (remove) document.deleteIn([client.key, 'clanker']);
     else document.setIn([client.key, 'clanker'], desired);
+    if(client.id==='hermes') {
+      const enabled=value.plugins?.enabled;
+      const disabled=value.plugins?.disabled;
+      if((enabled!==undefined&&!Array.isArray(enabled))||(disabled!==undefined&&!Array.isArray(disabled)))throw new Error('Hermes has unsupported plugin settings. They were left unchanged.');
+      if(remove) {
+        document.deleteIn(['plugins','entries','clanker-chat']);
+        if(enabled)document.setIn(['plugins','enabled'],enabled.filter(name=>name!=='clanker-chat'));
+      }
+      else {
+        document.setIn(['plugins','enabled'],[...new Set([...(enabled||[]),'clanker-chat'])]);
+        if(disabled)document.setIn(['plugins','disabled'],disabled.filter(name=>name!=='clanker-chat'));
+        document.setIn(['plugins','entries','clanker-chat','enabled'],true);
+        document.setIn(['plugins','entries','clanker-chat','mcp_allowlist'],['clanker']);
+        document.setIn(['plugins','entries','clanker-chat','allow_gateway_injection'],true);
+      }
+    }
     next = document.toString();
   } else {
     next = applyEdits(original || '{}\n', modify(original || '{}\n', [client.key, 'clanker'], desired, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
@@ -122,6 +140,7 @@ export function configureClient(client, launch, home, { remove = false, run = ru
     if (!remove && client.id === 'omp' && Array.isArray(value.disabledServers) && value.disabledServers.includes('clanker')) next = applyEdits(next, modify(next, ['disabledServers'], value.disabledServers.filter(name => name !== 'clanker'), { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
   }
   if (remove && !existing) return;
+  installNotifications(client,launch,home,{remove,write:atomicConfigWrite});
   atomicConfigWrite(client, original, next, home);
 }
 export function applyClientSelection(home, selected, launch, clients, options = {}) {
@@ -136,7 +155,7 @@ export function applyClientSelection(home, selected, launch, clients, options = 
       continue;
     }
     const grant = clientGrant(home, client.id, client.label);
-    const entry = { ...launch, env: { ...launch.env, CLANKER_CLIENT_ID: client.id, CLANKER_CLIENT_TOKEN: grant.token } };
+    const entry = { ...launch, env: { ...launch.env, CLANKER_CLIENT_ID: client.id, CLANKER_CLIENT_TOKEN: grant.token, ...(['codex','claude','hermes','omp'].includes(client.id)?{CLANKER_NOTIFICATIONS:'1'}:{}) } };
     try { configureClient(client, entry, home, options); enableClient(home, client.id, grant); results.push({ id: client.id, label: client.label, state: 'connected' }); }
     catch (error) { results.push({ id: client.id, label: client.label, state: 'error', note: /different clanker|could not be read|unsupported|changed during/.test(error.message) ? error.message : 'Could not save this connection. Existing settings were kept.' }); }
   }

@@ -10,6 +10,8 @@ import { endpoint, encodeInvite, decodeInvite, messageSchema, open, openPair, se
 import { socketPath, readJSON, json } from './local.js';
 import { authorizeClient } from './access.js';
 import { VERSION } from './version.js';
+import { CodexNotifications } from './notifications.js';
+import { Discussions } from './discussions.js';
 
 const sendSchema = z.object({ to: z.string().min(1), text, kind: z.enum(['message', 'session', 'task_request']).default('message'), thread: z.string().uuid().optional(), replyTo: z.string().uuid().optional() }).strict();
 const listSchema = z.object({ unread: z.boolean().optional(), after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).optional(), direction: z.enum(['in', 'out']).optional() }).strict();
@@ -35,6 +37,8 @@ export class ClankerChat extends EventEmitter {
     chmodSync(socketPath(home), 0o600);
     try {
       this.store = new Store(home, name);
+      this.discussions = new Discussions(home, this.store, this.options.discussions);
+      this.notifications = new CodexNotifications(home, this.store, { ...this.options.notifications, discussions:this.discussions });
       this.remote = http.createServer((req, res) => this.remoteRequest(req, res));
       this.remote.requestTimeout = 15_000; this.remote.headersTimeout = 10_000; this.remote.maxConnections = 32;
       await listen(this.remote, { host: '127.0.0.1', port });
@@ -44,6 +48,7 @@ export class ClankerChat extends EventEmitter {
       else await this.startTunnel();
       if (this.stopping) throw new Error('Daemon stopped during startup');
       this.timer = setInterval(() => this.tick(), 2_000);
+      this.notificationTimer = setInterval(() => this.notifications.tick().catch(error => this.emit('warning', error.message)), 2_000);
       this.tick();
       return this;
     } catch (error) { await this.close(); throw error; }
@@ -89,7 +94,8 @@ export class ClankerChat extends EventEmitter {
       if (peer.revoked) throw new Error('Peer revoked');
       if (req.url === '/v1/messages') {
         const message = messageSchema.parse(open(this.store.identity, envelope, peer.identity, 'message'));
-        if (this.store.insert(peer.id, 'in', message)) this.emit('message', { peer: peer.identity.name, id: message.id });
+        const inserted = message.kind === 'discussion' ? this.discussions.receive(peer.id,message) : this.store.insert(peer.id, 'in', message);
+        if (inserted) this.emit('message', { peer: peer.identity.name, id: message.id });
         return json(res, 200, seal(this.store.identity, peer.identity, 'receipt', { requestId: envelope.id, messageId: message.id }));
       }
       const data = z.object({ endpoint: z.string().max(256) }).strict().parse(open(this.store.identity, envelope, peer.identity, 'announce'));
@@ -104,13 +110,34 @@ export class ClankerChat extends EventEmitter {
       if (!this.store) return json(res, 503, { error: 'Daemon starting' });
       if (req.headers['x-clanker-origin'] === 'mcp') authorizeClient(this.options.home, req.headers['x-clanker-client'], req.headers['x-clanker-token']);
       const input = z.object({ command: z.string(), args: z.record(z.string(), z.unknown()) }).strict().parse(await readJSON(req));
-      const result = await this.command(input.command, input.args);
+      if(req.headers['x-clanker-origin']==='mcp' && ['notification_register','notification_unregister','notifications'].includes(input.command))throw new Error('Session alert registrations are managed by the local user, not MCP tools.');
+      const actor = req.headers['x-clanker-origin'] === 'mcp' ? { client:req.headers['x-clanker-client'], worker:z.string().uuid().optional().parse(req.headers['x-clanker-worker']) } : undefined;
+      const result = await this.command(input.command, input.args, actor);
       if (req.headers['x-clanker-origin'] === 'mcp') authorizeClient(this.options.home, req.headers['x-clanker-client'], req.headers['x-clanker-token']);
       json(res, 200, result);
     } catch (error) { json(res, 400, { error: error.message }); }
   }
-  async command(command, args = {}) {
+  async command(command, args = {}, actor) {
     switch (command) {
+      case 'discussion_start': { const result=this.discussions.propose(args,actor);this.tick();return result; }
+      case 'discussion_get': return this.discussions.get(args.id,actor);
+      case 'discussion_list': return this.discussions.list(actor);
+      case 'discussion_accept': { const result=this.discussions.accept(args.id,args.client,actor);this.tick();this.emit('message');return result; }
+      case 'discussion_stop': { const result=this.discussions.stop(args.id,args.reason,actor);this.tick();this.emit('message');return result; }
+      case 'discussion_reply': { const result=this.discussions.reply(args,actor);this.tick();this.emit('message');return result; }
+      case 'discussion_work': return this.discussions.work(actor?.client || z.string().parse(args.client),actor?.worker);
+      case 'discussion_next': {
+        const id=z.string().uuid().parse(args.id);const seconds=z.number().min(0).max(20).default(0).parse(args.seconds);
+        let result=this.discussions.next(id,actor);
+        if(seconds && result.action==='wait') {
+          await new Promise(resolve=>{const done=()=>{clearTimeout(timer);this.off('message',done);this.off('closing',done);resolve();};const timer=setTimeout(done,seconds*1000);this.once('message',done);this.once('closing',done);});
+          result=this.discussions.next(id,actor);
+        }
+        return result;
+      }
+      case 'notification_register': return this.notifications.register(args);
+      case 'notification_unregister': return this.notifications.unregister(args.session,args.lease);
+      case 'notifications': return this.notifications.status();
       case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION };
       case 'peers': return this.store.peers();
       case 'invite': {
@@ -188,6 +215,7 @@ export class ClankerChat extends EventEmitter {
     return this.busy;
   }
   async flush() {
+    this.discussions.expire();
     // Re-announce periodically so a friend that kept their endpoint can learn a
     // replacement address after our Quick Tunnel restarts.
     if (!this.lastAnnounce || Date.now() - this.lastAnnounce > 30_000) {
@@ -204,6 +232,9 @@ export class ClankerChat extends EventEmitter {
     for (const row of this.store.queued()) {
       if (this.stopping) return;
       try {
+        if (this.store.db.prepare('SELECT state FROM messages WHERE id=?').get(row.id)?.state !== 'queued') continue;
+        // A prior control event must be delivered before a later discussion turn.
+        if (row.payload.kind === 'discussion' && this.store.db.prepare("SELECT 1 FROM messages WHERE peer=? AND direction='out' AND state='queued' AND seq<? AND json_extract(payload,'$.thread')=? LIMIT 1").get(row.peer,row.seq,row.payload.thread)) continue;
         const peer = this.store.peer(row.peer); if (peer.revoked) continue;
         const envelope = seal(this.store.identity, peer.identity, 'message', row.payload);
         const receipt = open(this.store.identity, await post(peer.endpoint, '/v1/messages', envelope, this.options.local), peer.identity, 'receipt');
@@ -221,6 +252,7 @@ export class ClankerChat extends EventEmitter {
   }
   async closeOnce() {
     this.stopping = true; clearInterval(this.timer); this.emit('closing');
+    clearInterval(this.notificationTimer); await this.notifications?.close();
     this.tunnel?.kill();
     const closes = [this.admin, this.remote].filter(Boolean).map(server => new Promise(resolve => { server.close(resolve); server.closeIdleConnections(); }));
     await this.busy;

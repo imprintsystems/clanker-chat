@@ -9,7 +9,7 @@ import { ClankerChat } from '../src/daemon.js';
 const home = mkdtempSync(join(tmpdir(), 'ap-live-'));
 const cloudflared = process.env.CLOUDFLARED_BIN || 'cloudflared';
 const a = new ClankerChat({ home: join(home, 'a'), name: 'Synthetic A', cloudflared });
-const b = new ClankerChat({ home: join(home, 'b'), name: 'Synthetic B', cloudflared });
+let b = new ClankerChat({ home: join(home, 'b'), name: 'Synthetic B', cloudflared });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const until = async check => { const start = Date.now(); while (Date.now() - start < 60_000) { if (await check()) return; await pause(500); } throw new Error('Live tunnel check timed out'); };
 try {
@@ -31,6 +31,31 @@ try {
   await until(() => a.store.list().length === 1);
   await until(() => b.store.list({ direction: 'out' })[0].state === 'delivered');
   assert.equal(a.store.list()[0].id, reply.id);
+  if (process.argv.includes('--resilience')) {
+    // Pause only this disposable tunnel process, simulating a lost connection.
+    const tunnel = b.tunnel;
+    assert.equal(tunnel.kill('SIGSTOP'), true);
+    let queued;
+    try {
+      queued = await a.command('send', { to: b.store.identity.public.id, text: 'Synthetic message queued during a tunnel outage.' });
+      await until(() => a.store.list({ direction: 'out' }).find(row => row.id === queued.id)?.attempts > 0);
+      assert.equal(a.store.list({ direction: 'out' }).find(row => row.id === queued.id).state, 'queued');
+      assert.equal(b.store.list().some(row => row.id === queued.id), false);
+      console.log('Paused tunnel: failed delivery stayed queued.');
+    } finally { tunnel.kill('SIGCONT'); }
+    await until(() => a.store.list({ direction: 'out' }).find(row => row.id === queued.id)?.state === 'delivered');
+    assert.equal(b.store.list().filter(row => row.id === queued.id).length, 1);
+    console.log('Resumed tunnel: queued message delivered exactly once without manual retry.');
+
+    const oldOrigin = b.origin; const oldIdentity = b.store.identity.public.id; const options = b.options;
+    await b.close(); b = new ClankerChat(options); await b.start();
+    assert.notEqual(b.origin, oldOrigin); assert.equal(b.store.identity.public.id, oldIdentity);
+    await until(() => a.store.peer(oldIdentity).endpoint === b.origin);
+    const recovered = await a.command('send', { to: oldIdentity, text: 'Synthetic message after an automatic address update.' });
+    await until(() => a.store.list({ direction: 'out' }).find(row => row.id === recovered.id)?.state === 'delivered');
+    assert.equal(b.store.list().filter(row => row.id === recovered.id).length, 1);
+    console.log('Replacement tunnel: contact learned its new address and delivery resumed without pairing again.');
+  }
   console.log(JSON.stringify({ passed: true, transport: 'two real Cloudflare Quick Tunnels', paired: true, directions: ['A to B', 'B to A'], receipts: 'persisted and verified', syntheticDataOnly: true }));
 } catch (error) {
   for (const [side, daemon] of [['A', a], ['B', b]]) {

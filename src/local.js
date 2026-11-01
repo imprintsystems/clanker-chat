@@ -17,7 +17,7 @@ export function json(response, status, value) {
 }
 export function localCall(home, command, args = {}, client) {
   return new Promise((resolve, reject) => {
-    const headers = { 'content-type': 'application/json', ...(client ? { 'x-clanker-origin': 'mcp', 'x-clanker-client': client.id || '', 'x-clanker-token': client.token || '' } : {}) };
+    const headers = { 'content-type': 'application/json', ...(client ? { 'x-clanker-origin': 'mcp', 'x-clanker-client': client.id || '', 'x-clanker-token': client.token || '', ...(client.worker ? { 'x-clanker-worker':client.worker } : {}) } : {}) };
     const request = http.request({ socketPath: socketPath(home), path: '/local', method: 'POST', headers, timeout: 30_000 }, async response => {
       try {
         const value = await readJSON(response);

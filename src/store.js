@@ -20,6 +20,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS peers (id TEXT PRIMARY KEY, identity TEXT NOT NULL, endpoint TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, announced INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS invites (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, peer TEXT NOT NULL, direction TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retryAt INTEGER NOT NULL DEFAULT 0, error TEXT, read INTEGER NOT NULL DEFAULT 0, decision TEXT NOT NULL DEFAULT 'pending');
+      CREATE TABLE IF NOT EXISTS notification_sessions (session TEXT PRIMARY KEY, executable TEXT NOT NULL, agentHome TEXT NOT NULL, lease TEXT NOT NULL, closed INTEGER NOT NULL DEFAULT 0, heartbeat INTEGER NOT NULL, latest INTEGER NOT NULL DEFAULT 0, notified INTEGER NOT NULL DEFAULT 0, retryAt INTEGER NOT NULL DEFAULT 0, error TEXT);
+      CREATE TABLE IF NOT EXISTS discussions (id TEXT PRIMARY KEY, peer TEXT NOT NULL, role TEXT NOT NULL, state TEXT NOT NULL, client TEXT, proposal TEXT NOT NULL, turn INTEGER NOT NULL DEFAULT 0, lastId TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, expiresAt INTEGER NOT NULL, maxTurns INTEGER NOT NULL, summary TEXT, seen INTEGER NOT NULL DEFAULT 0, claimWorker TEXT, claimUntil INTEGER NOT NULL DEFAULT 0);
     `);
     for (const suffix of ['-wal', '-shm']) if (existsSync(file + suffix)) chmodSync(file + suffix, 0o600);
     if (fresh || !this.get('identity')) this.set('identity', newIdentity(name || 'Me'));
@@ -68,7 +70,8 @@ export class Store {
       if (existing.peer !== peer || existing.direction !== direction || existing.payload !== JSON.stringify(payload)) throw new Error('Message ID collision');
       return false;
     }
-    this.db.prepare('INSERT INTO messages (id,peer,direction,payload,state) VALUES (?,?,?,?,?)').run(payload.id, peer, direction, JSON.stringify(payload), direction === 'in' ? 'received' : 'queued');
+    const control = payload.kind === 'discussion' && payload.discussion?.type !== 'proposal';
+    this.db.prepare('INSERT INTO messages (id,peer,direction,payload,state,read) VALUES (?,?,?,?,?,?)').run(payload.id, peer, direction, JSON.stringify(payload), direction === 'in' ? 'received' : 'queued', control ? 1 : 0);
     return true;
   }
   list({ unread = false, after = 0, limit = 50, direction = 'in' } = {}) {
@@ -76,7 +79,7 @@ export class Store {
   }
   queued() { return this.db.prepare("SELECT * FROM messages WHERE direction='out' AND state='queued' AND retryAt<=? ORDER BY seq LIMIT 20").all(Date.now()).map(row => ({ ...row, payload: JSON.parse(row.payload) })); }
   status() {
-    return { identity: this.identity.public, endpoint: this.get('endpoint') || null, unread: this.db.prepare("SELECT count(*) AS n FROM messages WHERE direction='in' AND read=0").get().n, latest: this.db.prepare("SELECT coalesce(max(seq),0) AS n FROM messages WHERE direction='in'").get().n, queued: this.db.prepare("SELECT count(*) AS n FROM messages WHERE state='queued'").get().n };
+    return { identity: this.identity.public, endpoint: this.get('endpoint') || null, unread: this.db.prepare("SELECT count(*) AS n FROM messages WHERE direction='in' AND read=0").get().n, latest: this.db.prepare("SELECT coalesce(max(seq),0) AS n FROM messages WHERE direction='in'").get().n, inboxLatest:this.db.prepare("SELECT coalesce(max(seq),0) AS n FROM messages WHERE direction='in' AND (json_extract(payload,'$.kind')!='discussion' OR json_extract(payload,'$.discussion.type')='proposal')").get().n, queued: this.db.prepare("SELECT count(*) AS n FROM messages WHERE state='queued'").get().n };
   }
   revoke(id) {
     const peer = this.peer(id);

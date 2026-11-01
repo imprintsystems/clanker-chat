@@ -16,6 +16,10 @@ const help = `clanker ${VERSION}
     clanker setup                      Guided setup with app discovery
     clanker agents                     Choose which agents can use your inbox
     clanker agents --list               Show detected and connected apps
+    clanker agent hermes                Open Hermes TUI with inbox alerts
+    clanker agent claude --development-channel
+                                        Open Claude's local channel preview
+    clanker notifications              Show live Codex alert hooks
     clanker invite                     Create a single-use invite
     clanker pair                       Paste an invite from someone else
 
@@ -31,6 +35,13 @@ const help = `clanker ${VERSION}
     clanker revoke <peer>               Block a contact
 
   WORK TOGETHER
+    clanker discuss ask David "Review this?" --client codex --file evidence.txt
+    clanker discuss list               Show second-opinion discussions
+    clanker discuss show <id>          Read scope, transcript and summary
+    clanker discuss accept <id> --client claude
+                                        Accept supplied-evidence discussion
+    clanker discuss stop <id>          Stop an accepted discussion
+    clanker discuss decline <id>       Decline a proposal
     clanker send David --file note.txt --kind session
     clanker send David "Please test this" --kind task_request
     clanker approve <id>                Approve a local task request
@@ -49,17 +60,21 @@ const help = `clanker ${VERSION}
   Options: --json, --home <path>, --no-service, --name <name>, --client <id>
            --port <port>, --file <path>, --kind <kind>, --thread <uuid>
            --reply-to <uuid>, --after <sequence>, --unread, --list, --help
+           --max-turns <2..8>, --minutes <1..30>
 
   Incoming messages never execute commands. Both devices must be online to deliver.
 `;
 
 async function main() {
   process.umask(0o077);
+  if(process.argv[2]==='agent') {const {launchAgent}=await import('./host-launch.js');process.exitCode=await launchAgent(process.argv[3],process.argv.slice(4));return;}
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
     home: { type: 'string' }, name: { type: 'string' }, port: { type: 'string' },
     file: { type: 'string' }, kind: { type: 'string' }, thread: { type: 'string' },
     'reply-to': { type: 'string' }, unread: { type: 'boolean' }, after: { type: 'string' },
     client: { type: 'string', multiple: true }, 'no-service': { type: 'boolean' },
+    'agent-home': {type:'string'}, 'agent-bin': {type:'string'},
+    'max-turns': {type:'string'}, minutes:{type:'string'},
     local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
     json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }
   } });
@@ -77,6 +92,8 @@ async function main() {
     else { const { showHome } = await import('./onboarding.js'); command = await showHome(home); if (!command) return; }
   }
   if (command === 'mcp') { const { serveMCP } = await import('./mcp.js'); return serveMCP(home); }
+  if(command==='notify' && target==='codex') {const {runCodexHook}=await import('./host-launch.js');await runCodexHook(home,{agentHome:values['agent-home'],executable:values['agent-bin']});return;}
+  if(command==='notifications') {const rows=await localCall(home,'notifications');if(values.json)console.log(JSON.stringify(rows,null,2));else{banner('Session alerts');for(const row of rows)line('Codex',`${row.session}${row.error?` · ${row.error}`:''}`);if(!rows.length)console.log('  No live Codex alert hooks. Open /hooks in Codex to trust Clanker Chat alerts.\n');}return;}
   if (command === 'config') {
     const { launchCommand } = await import('./setup.js'); const { readAccess } = await import('./access.js');
     const access = readAccess(home); const grant = access.clients.manual;
@@ -118,6 +135,18 @@ async function main() {
   const call = (action, args = {}) => localCall(home, action, args);
   const content = () => values.file ? readFileSync(values.file, 'utf8') : words.join(' ');
   switch (command) {
+    case 'discuss': {
+      const selected=values.client?.flatMap(value=>value.split(','));
+      const oneClient=()=>{if(selected?.length!==1)throw new Error('Choose one connected agent with --client codex, claude, hermes or omp.');return selected[0];};
+      let result;
+      if(target==='ask')result=await call('discussion_start',{to:words[0],question:words.slice(1).join(' '),evidence:values.file?readFileSync(values.file,'utf8'):'',client:oneClient(),...(values['max-turns']?{maxTurns:Number(values['max-turns'])}:{}),...(values.minutes?{minutes:Number(values.minutes)}:{})});
+      else if(target==='list')result=await call('discussion_list');
+      else if(target==='show')result=await call('discussion_get',{id:words[0]});
+      else if(target==='accept')result=await call('discussion_accept',{id:words[0],client:oneClient()});
+      else if(['stop','decline'].includes(target))result=await call('discussion_stop',{id:words[0],reason:target==='decline'?'declined':'stopped'});
+      else throw new Error('Use clanker discuss ask, list, show, accept, stop or decline.');
+      output('discuss',result);break;
+    }
     case 'invite': {
       const invite = await call('invite');
       if (values.json) console.log(JSON.stringify(invite));
