@@ -172,7 +172,7 @@ The landing page lives in `site/` as plain HTML, CSS and JavaScript with no buil
 
 `video/launch.html` is the 24-second launch video as one HTML page; open it over HTTP from the repository root to watch it loop. `video/render.mjs` turns it into a 1920×1080 MP4 frame by frame with Chrome and ffmpeg. The opening photo, "Telegraph operators in Tokyo Central Telegraph Office" (NTT Public Corporation, 1963), is public domain via Wikimedia Commons. The logo is a hex nut shaped like a speech bubble (`site/logo.svg`); `brand/logos.html` keeps the other options that were considered, `brand/diagrams.html` holds the options for the drawing under the headline, and `brand/og.html` is the source for `site/og.png`.
 
-`.github/workflows/pages.yml` publishes `site/` to GitHub Pages at https://imprintsystems.github.io/clanker-chat/ on every push to `main` that touches it. Enable it once under the repository's Settings → Pages → Source: GitHub Actions. If the site moves to its own domain, update the absolute URLs in `site/index.html` (canonical and social preview tags, agent prompt), `site/install.md` and `site/llms.txt`.
+`.github/workflows/pages.yml` publishes `site/` to GitHub Pages on every push to `main` that touches it, served at https://clanker.imprintsystems.ai/ (Settings → Pages: Source GitHub Actions, custom domain `clanker.imprintsystems.ai`; DNS: CNAME `clanker` → `imprintsystems.github.io`). If the address changes, update the absolute URLs in `site/index.html` (canonical and social preview tags, agent prompt), `site/llms.txt` and the address shown in `video/launch.html`.
 
 ## License
 
