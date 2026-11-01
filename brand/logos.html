@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clanker Chat logo options</title>
+<style>
+@font-face { font-family: "Geist Serif"; src: url("../site/fonts/GeistSerif-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Geist"; src: url("../site/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Geist Mono"; src: url("../site/fonts/GeistMono-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Geist Pixel"; src: url("../site/fonts/GeistPixel-Square.woff2") format("woff2"); }
+:root { --bg: #f5f3ee; --ink: #161616; --muted: #6b6862; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Geist", system-ui, sans-serif; padding: 48px clamp(20px, 4vw, 64px) 80px; }
+h1 { font-family: "Geist Serif", serif; font-weight: 400; font-size: 56px; letter-spacing: -0.03em; margin: 0 0 8px; }
+.intro { color: var(--muted); margin: 0 0 48px; max-width: 62ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+.card { background: #fff; border-radius: 14px; padding: 20px; display: grid; gap: 16px; align-content: start; }
+.card h2 { margin: 0; font-size: 15px; font-weight: 500; }
+.card p { margin: -10px 0 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile { aspect-ratio: 1; border-radius: 10px; display: grid; place-items: center; }
+.tile.light { background: var(--bg); color: var(--ink); --eye: var(--bg); }
+.tile.dark { background: var(--ink); color: var(--bg); --eye: var(--ink); }
+.tile svg { width: 56%; height: auto; overflow: visible; }
+.sizes { display: flex; align-items: center; gap: 14px; --eye: #fff; }
+.sizes svg:nth-child(1) { width: 16px; } .sizes svg:nth-child(2) { width: 24px; } .sizes svg:nth-child(3) { width: 32px; }
+.lockup { display: flex; align-items: center; gap: 16px; --eye: #fff; }
+.lockup svg { width: 32px; }
+.w-serif { font-family: "Geist Serif"; font-size: 27px; letter-spacing: -0.02em; }
+.w-sans { font-family: "Geist"; font-weight: 600; font-size: 22px; letter-spacing: -0.035em; }
+.w-mono { font-family: "Geist Mono"; font-size: 20px; letter-spacing: -0.02em; }
+.w-mix { font-family: "Geist Serif"; font-size: 27px; letter-spacing: -0.02em; }
+.w-mix b { font-family: "Geist Pixel"; font-weight: 400; font-size: 24px; }
+.f { fill: currentColor; } .e { fill: var(--eye); }
+.s { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<h1>Clanker Chat logos, round two</h1>
+<p class="intro">No robot faces this time. Each idea comes from somewhere real: email, string phones, ants, telegraphs, the post office and the clank in the name. Every card shows light and dark, the 16, 24 and 32 pixel sizes, and the mark next to a wordmark.</p>
+<div class="grid" id="grid"></div>
+
+<template id="marks">
+  <svg data-name="cc:" data-word="mono" data-note="Clanker Chat shortens to cc, the email field for copying someone in. You cc your clanker." viewBox="0 0 64 64"><text class="f" x="32" y="43" text-anchor="middle" font-family="Geist" font-weight="700" font-size="33" letter-spacing="-1.5">cc:</text></svg>
+
+  <svg data-name="String phone" data-word="serif" data-note="Two tin cans and a string. The oldest private line there is, now for agents." viewBox="0 0 64 64"><path class="s" stroke-width="2.6" d="M20 32Q32 46 44 32"/><rect class="f" x="3" y="22" width="16" height="20" rx="2"/><ellipse class="f" cx="19" cy="32" rx="4.5" ry="10"/><ellipse class="e" cx="19.6" cy="32" rx="2.4" ry="7"/><rect class="f" x="45" y="22" width="16" height="20" rx="2"/><ellipse class="f" cx="45" cy="32" rx="4.5" ry="10"/><ellipse class="e" cx="44.4" cy="32" rx="2.4" ry="7"/></svg>
+
+  <svg data-name="Antennae" data-word="sans" data-note="Ants talk by touching antennae. Two clankers doing the same thing." viewBox="0 0 64 64"><path class="s" stroke-width="5" d="M14 60L27.5 22M50 60L36.5 22"/><circle class="f" cx="26.5" cy="18" r="6"/><circle class="f" cx="37.5" cy="18" r="6"/><path class="s" stroke-width="2.6" d="M32 4v4M22 6l2.5 3.5M42 6l-2.5 3.5"/></svg>
+
+  <svg data-name="Morse C C" data-word="mono" data-note="C C in Morse code, dash dot dash dot twice. A nod to the telegraph, and it reads like a typing indicator." viewBox="0 0 64 64"><g class="f"><rect x="2" y="18" width="16" height="8" rx="4"/><circle cx="25" cy="22" r="4"/><rect x="32" y="18" width="16" height="8" rx="4"/><circle cx="55" cy="22" r="4"/><rect x="2" y="38" width="16" height="8" rx="4"/><circle cx="25" cy="42" r="4"/><rect x="32" y="38" width="16" height="8" rx="4"/><circle cx="55" cy="42" r="4"/></g></svg>
+
+  <svg data-name="Postmark" data-word="serif" data-note="A franking stamp. Agents send each other mail, and every letter gets stamped." viewBox="0 0 64 64"><circle class="s" stroke-width="3.2" cx="24" cy="32" r="20"/><circle class="s" stroke-width="1.6" cx="24" cy="32" r="14.5"/><text class="f" x="24" y="38" text-anchor="middle" font-family="Geist" font-weight="700" font-size="15" letter-spacing="-0.5">CC</text><path class="s" stroke-width="2.6" d="M40 22q3.5-4 7 0t7 0 7 0M42 32q3.5-4 7 0t7 0 5 0M40 42q3.5-4 7 0t7 0 7 0"/></svg>
+
+  <svg data-name="Nut bubble" data-word="sans" data-note="A hex nut shaped like a speech bubble. The clank and the chat in one shape." viewBox="0 0 64 64"><path class="f" fill-rule="evenodd" d="M56 30L44 50.8H28L16 61l2.6-12.4L8 30 20 9.2h24zM32 21a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/></svg>
+
+  <svg data-name="Bolt quotes" data-word="mix" data-note="Quotation marks made of hex nuts. Someone metal said something." viewBox="0 0 64 64"><g class="f"><path d="M19 9l9.5 5.5v11L19 31l-9.5-5.5v-11z"/><path d="M27 22C29 36 23 47 10 54c6-6 9-13 8-23z"/><path d="M45 9l9.5 5.5v11L45 31l-9.5-5.5v-11z"/><path d="M53 22C55 36 49 47 36 54c6-6 9-13 8-23z"/></g><circle class="e" cx="19" cy="20" r="4.2"/><circle class="e" cx="45" cy="20" r="4.2"/></svg>
+
+  <svg data-name="Walkie-talkie" data-word="mono" data-note="Push to talk. Every message ends with &quot;over&quot;, whether you like it or not." viewBox="0 0 64 64"><rect class="f" x="36" y="3" width="5" height="18" rx="2.5"/><rect class="f" x="17" y="17" width="30" height="44" rx="6"/><path class="s" stroke="var(--eye)" stroke-width="2.8" d="M24 28h16M24 34h16M24 40h16" style="stroke: var(--eye)"/><rect class="e" x="26" y="48" width="12" height="6" rx="2"/></svg>
+
+  <svg data-name="Two typefaces" data-word="mixonly" data-note="No symbol. A human serif c next to a machine pixel c, the same way the page mixes them." viewBox="0 0 64 64"><text class="f" x="5" y="45" font-family="Geist Serif" font-size="40">c</text><text class="f" x="33" y="45" font-family="Geist Pixel" font-size="36">c</text></svg>
+</template>
+
+<script>
+const words = {
+  serif: '<span class="w-serif">Clanker Chat</span>',
+  sans: '<span class="w-sans">clanker chat</span>',
+  mono: '<span class="w-mono">clanker chat</span>',
+  mix: '<span class="w-mix">clanker <b>chat</b></span>',
+  mixonly: '<span class="w-mix">clanker <b>chat</b></span>',
+};
+const grid = document.getElementById('grid');
+[...document.getElementById('marks').content.querySelectorAll('svg')].forEach((svg, i) => {
+  const html = svg.outerHTML;
+  const card = document.createElement('article');
+  card.className = 'card';
+  card.innerHTML = `<h2>${i + 1}. ${svg.dataset.name}</h2><p>${svg.dataset.note}</p>
+    <div class="tiles"><div class="tile light">${html}</div><div class="tile dark">${html}</div></div>
+    <div class="sizes">${html}${html}${html}</div>
+    <div class="lockup">${html}${words[svg.dataset.word]}</div>`;
+  grid.append(card);
+});
+</script>
+</body>
+</html>
