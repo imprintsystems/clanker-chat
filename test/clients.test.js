@@ -25,6 +25,42 @@ test('discovery finds executable clients and named OMP profiles without running 
   assert.equal(profile.file, join(systemHome, '.omp/profiles/work/agent/mcp.json'));
   assert.throws(() => discoverClients({ systemHome, env: { OMP_PROFILE: '../other' } }), /profile name/);
 });
+test('discovery follows active Claude and OMP config directories and the Linux Desktop root', t => {
+  const { root, systemHome, home, launch } = fixture(t);
+  const claudeHome = join(root, 'claude-custom'); const ompHome = join(root, 'omp-custom');
+  const configHome = join(root, 'xdg');
+  for (const path of [claudeHome, ompHome, join(configHome, 'Claude')]) mkdirSync(path, { recursive: true });
+  const env = { PATH: '', CLAUDE_CONFIG_DIR: claudeHome, PI_CODING_AGENT_DIR: ompHome, XDG_CONFIG_HOME: configHome };
+  const clients = discoverClients({ systemHome, platform: 'linux', env });
+  const claude = clients.find(c => c.id === 'claude'); const omp = clients.find(c => c.id === 'omp');
+  const desktop = clients.find(c => c.id === 'claude-desktop');
+  for (const client of [claude, omp, desktop]) assert.equal(client.detected, true, client.id);
+  assert.equal(desktop.file, join(configHome, 'Claude/claude_desktop_config.json'));
+  assert.equal(applyClientSelection(home, ['claude', 'omp'], launch, [claude, omp]).every(row => row.state === 'connected'), true);
+  assert.equal(JSON.parse(readFileSync(join(claudeHome, '.claude.json'), 'utf8')).mcpServers.clanker.env.CLANKER_CLIENT_ID, 'claude');
+  assert.equal(JSON.parse(readFileSync(join(ompHome, 'mcp.json'), 'utf8')).mcpServers.clanker.env.CLANKER_CLIENT_ID, 'omp');
+  assert.equal(existsSync(join(systemHome, '.claude.json')), false);
+  assert.equal(existsSync(join(systemHome, '.omp/agent/mcp.json')), false);
+  const customRoot = { ...env, PI_CONFIG_DIR: '.custom-omp' };
+  assert.equal(discoverClients({ systemHome, env: { ...customRoot, PI_CODING_AGENT_DIR: '' } }).find(c => c.id === 'omp').file, join(systemHome, '.custom-omp/agent/mcp.json'));
+  assert.equal(discoverClients({ systemHome, env: { ...customRoot, OMP_PROFILE: 'work' } }).find(c => c.id === 'omp').file, join(systemHome, '.custom-omp/profiles/work/agent/mcp.json'));
+});
+test('Hermes setup targets the sticky active profile and respects an explicit profile home', t => {
+  const { systemHome, home, launch } = fixture(t);
+  const root = join(systemHome, '.hermes'); const profileHome = join(root, 'profiles/work');
+  mkdirSync(profileHome, { recursive: true }); writeFileSync(join(root, 'active_profile'), 'work\n');
+  const env = { PATH: '' };
+  const hermes = discoverClients({ systemHome, env }).find(c => c.id === 'hermes');
+  assert.equal(hermes.label, 'Hermes (work)'); assert.equal(hermes.detected, true);
+  assert.equal(applyClientSelection(home, ['hermes'], launch, [hermes])[0].state, 'connected');
+  assert.equal(yaml(readFileSync(join(profileHome, 'config.yaml'), 'utf8')).mcp_servers.clanker.env.CLANKER_CLIENT_ID, 'hermes');
+  assert.equal(existsSync(join(root, 'config.yaml')), false);
+  assert.equal(discoverClients({ systemHome, env: { ...env, HERMES_HOME: root } }).find(c => c.id === 'hermes').file, join(profileHome, 'config.yaml'));
+  const otherHome = join(root, 'profiles/other'); mkdirSync(otherHome);
+  assert.equal(discoverClients({ systemHome, env: { ...env, HERMES_HOME: otherHome } }).find(c => c.id === 'hermes').file, join(otherHome, 'config.yaml'));
+  writeFileSync(join(root, 'active_profile'), '../other\n');
+  assert.throws(() => discoverClients({ systemHome, env }), /Hermes profile/);
+});
 test('Hermes YAML comments, models and other MCP servers survive connection, update and disconnection', t => {
   const { home, clients, launch, save } = fixture(t); const hermes = clients.find(c => c.id === 'hermes');
   const original = '# My provider\nmodel: hermes-model\nmcp_servers:\n  existing:\n    command: tool\n'; save(hermes, original);
@@ -52,6 +88,7 @@ test('OMP, Claude, Cursor and VS Code JSON preserve comments and unrelated entri
     const entry = config[client.key].clanker;
     if (id === 'opencode') { assert.deepEqual(entry.command, [launch.command, 'mcp']); assert.equal(entry.environment.CLANKER_CLIENT_ID, id); }
     else assert.equal(entry.env.CLANKER_CLIENT_ID, id);
+    if (['omp', 'cursor', 'vscode'].includes(id)) assert.equal(entry.type, 'stdio', id);
     if (id === 'omp') assert.deepEqual(config.disabledServers, ['other']);
   }
 });

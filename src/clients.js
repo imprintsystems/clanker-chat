@@ -1,5 +1,5 @@
 import { existsSync, accessSync, constants, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync } from 'node:fs';
-import { dirname, join, delimiter, basename } from 'node:path';
+import { dirname, join, resolve, delimiter, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
@@ -20,16 +20,28 @@ export function discoverClients({ systemHome = homedir(), env = process.env, pla
   const config = env.XDG_CONFIG_HOME || join(systemHome, '.config');
   const apps = ['/Applications', join(systemHome, 'Applications')];
   const appExists = names => apps.some(dir => names.some(name => existsSync(join(dir, name))));
-  const hermes = env.HERMES_HOME || join(systemHome, '.hermes');
+  let hermes = env.HERMES_HOME || join(systemHome, '.hermes');
+  let hermesProfile = basename(dirname(hermes)) === 'profiles' ? basename(hermes) : undefined;
+  if (!hermesProfile && existsSync(join(hermes, 'active_profile'))) {
+    const active = readFileSync(join(hermes, 'active_profile'), 'utf8').trim();
+    if (active && active !== 'default') {
+      if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(active)) throw new Error('The active Hermes profile name is not supported. Use a lowercase profile name without path separators.');
+      hermesProfile = active;
+      hermes = join(hermes, 'profiles', active);
+    }
+  }
+  const claude = env.CLAUDE_CONFIG_DIR || join(systemHome, '.claude');
+  const desktop = join(platform === 'darwin' ? support : config, 'Claude');
   const profile = env.OMP_PROFILE || env.PI_PROFILE;
   if (profile && !/^[a-zA-Z0-9_.-]+$/.test(profile)) throw new Error('The active OMP profile name is not supported. Use a profile name without path separators.');
-  const omp = profile ? join(systemHome, '.omp/profiles', profile, 'agent') : join(systemHome, '.omp/agent');
+  const ompRoot = join(systemHome, env.PI_CONFIG_DIR || '.omp');
+  const omp = profile ? join(ompRoot, 'profiles', profile, 'agent') : env.PI_CODING_AGENT_DIR ? resolve(env.PI_CODING_AGENT_DIR) : join(ompRoot, 'agent');
   const choose = paths => paths.find(existsSync) || paths[0];
   const list = [
-    { id: 'hermes', label: 'Hermes', binary: 'hermes', roots: [hermes], file: join(hermes, 'config.yaml'), format: 'yaml', key: 'mcp_servers', apps: ['Hermes.app'] },
+    { id: 'hermes', label: hermesProfile ? `Hermes (${hermesProfile})` : 'Hermes', binary: 'hermes', roots: [hermes], file: join(hermes, 'config.yaml'), format: 'yaml', key: 'mcp_servers', apps: ['Hermes.app'] },
     { id: 'codex', label: 'Codex', binary: 'codex', roots: [env.CODEX_HOME || join(systemHome, '.codex')], file: join(env.CODEX_HOME || join(systemHome, '.codex'), 'config.toml'), format: 'codex', apps: ['Codex.app', 'ChatGPT.app'] },
-    { id: 'claude', label: 'Claude Code', binary: 'claude', roots: [join(systemHome, '.claude')], file: join(systemHome, '.claude.json'), format: 'json', key: 'mcpServers', apps: [] },
-    { id: 'claude-desktop', label: 'Claude Desktop', roots: [join(support, 'Claude')], file: platform === 'darwin' ? join(support, 'Claude/claude_desktop_config.json') : join(config, 'Claude/claude_desktop_config.json'), format: 'json', key: 'mcpServers', apps: ['Claude.app'] },
+    { id: 'claude', label: 'Claude Code', binary: 'claude', roots: [claude], file: env.CLAUDE_CONFIG_DIR ? join(claude, '.claude.json') : join(systemHome, '.claude.json'), format: 'json', key: 'mcpServers', apps: [] },
+    { id: 'claude-desktop', label: 'Claude Desktop', roots: [desktop], file: join(desktop, 'claude_desktop_config.json'), format: 'json', key: 'mcpServers', apps: ['Claude.app'] },
     { id: 'omp', label: profile ? `Oh My Pi (${profile})` : 'Oh My Pi', binary: 'omp', roots: [omp], file: choose([join(omp, 'mcp.json'), join(omp, '.mcp.json')]), format: 'json', key: 'mcpServers', apps: [] },
     { id: 'cursor', label: 'Cursor', binary: 'cursor', roots: [join(systemHome, '.cursor')], file: join(systemHome, '.cursor/mcp.json'), format: 'json', key: 'mcpServers', apps: ['Cursor.app'] },
     { id: 'vscode', label: 'VS Code', binary: 'code', roots: [platform === 'darwin' ? join(support, 'Code') : join(config, 'Code')], file: platform === 'darwin' ? join(support, 'Code/User/mcp.json') : join(config, 'Code/User/mcp.json'), format: 'json', key: 'servers', apps: ['Visual Studio Code.app'] },
@@ -82,7 +94,7 @@ function codexEntry(client, run) {
 }
 function shape(client, launch) {
   if (client.id === 'opencode') return { type: 'local', command: [launch.command, ...launch.args], environment: launch.env, enabled: true };
-  return { ...(client.id === 'omp' || client.id === 'vscode' ? { type: 'stdio' } : {}), command: launch.command, args: launch.args, env: launch.env, ...(client.id === 'hermes' ? { enabled: true } : {}) };
+  return { ...(['omp', 'vscode', 'cursor'].includes(client.id) ? { type: 'stdio' } : {}), command: launch.command, args: launch.args, env: launch.env, ...(client.id === 'hermes' ? { enabled: true } : {}) };
 }
 function owned(entry, launch) {
   if (!entry) return true;

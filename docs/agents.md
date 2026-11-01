@@ -13,12 +13,12 @@ Discovery checks known app folders, executable names on PATH, and configuration 
 | `claude` | `~/.claude.json` | `mcpServers` |
 | `claude-desktop` | `~/Library/Application Support/Claude/claude_desktop_config.json` | `mcpServers` |
 | `omp` | `~/.omp/agent/mcp.json` | `mcpServers`, stdio |
-| `cursor` | `~/.cursor/mcp.json` | `mcpServers` |
+| `cursor` | `~/.cursor/mcp.json` | `mcpServers`, stdio |
 | `vscode` | `~/Library/Application Support/Code/User/mcp.json` | `servers`, stdio |
 | `opencode` | `~/.config/opencode/opencode.json` or existing `.jsonc` | Native local MCP command array |
 | `manual` | Run `clanker config` after selecting Other MCP app | Copy settings into another MCP host |
 
-`HERMES_HOME`, `CODEX_HOME` and `XDG_CONFIG_HOME` are respected when set. Hermes setup targets that active home, not every named profile. OMP uses the active `OMP_PROFILE` or `PI_PROFILE` under `~/.omp/profiles/<profile>/agent/`; otherwise it uses the default profile. An existing OMP `.mcp.json` is used if `mcp.json` is absent. Only Clanker's name is removed from OMP's disabled-server list when connecting it. Project-specific settings and other profiles are not scanned or rewritten.
+`HERMES_HOME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `XDG_CONFIG_HOME` are respected when set. A custom Claude Code directory stores its user settings in `$CLAUDE_CONFIG_DIR/.claude.json`. Hermes setup follows the `active_profile` selected by `hermes profile use` under the Hermes home; an explicit `HERMES_HOME` already pointing into `profiles/<name>` takes precedence. Only that active home is configured, not every named profile. OMP uses the active `OMP_PROFILE` or `PI_PROFILE` under `~/.omp/profiles/<profile>/agent/`; `PI_CONFIG_DIR` changes the `.omp` root and `PI_CODING_AGENT_DIR` overrides the default-profile agent directory (not named profiles). An existing OMP `.mcp.json` is used if `mcp.json` is absent. Only Clanker's name is removed from OMP's disabled-server list when connecting it. On Linux, Claude Desktop and VS Code use `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` and `$XDG_CONFIG_HOME/Code/User/mcp.json`, falling back to `~/.config`. Other default paths are the same on macOS and Linux. Project-specific settings and other profiles are not scanned or rewritten.
 
 Codex needs its CLI on PATH for safe native configuration, even when the desktop app is detected. Other absent apps may be configured in advance. Restart the host after saving if it does not reload MCP settings. A host may also require approval to use tools.
 
