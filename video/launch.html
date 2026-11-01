@@ -7,7 +7,7 @@
 @font-face { font-family: "Geist Serif"; src: url("../site/fonts/GeistSerif-Regular.woff2") format("woff2"); }
 @font-face { font-family: "Geist"; src: url("../site/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; }
 @font-face { font-family: "Geist Mono"; src: url("../site/fonts/GeistMono-Regular.woff2") format("woff2"); }
-:root { --bg: #f5f3ee; --ink: #161616; --muted: #6b6862; }
+:root { --bg: #f5f3ee; --ink: #161616; --muted: #6b6862; --surface: #ebe8e1; }
 html, body { margin: 0; background: #e9e6df; overflow: hidden; }
 #stage { position: relative; width: 1920px; height: 1080px; transform-origin: 0 0; font-family: "Geist", sans-serif; color: var(--ink); }
 .window { position: absolute; left: 160px; top: 66px; width: 1600px; height: 948px; border-radius: 18px; background: var(--bg); overflow: hidden; box-shadow: 0 1px 0 rgba(0,0,0,.06), 0 30px 80px rgba(40,30,10,.14); }
@@ -21,9 +21,13 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
 #phon { top: 220px; font-size: 30px; color: var(--muted); }
 #phon em { font-family: "Geist Serif"; }
 #def { top: 278px; left: 300px; right: 300px; font-size: 35px; line-height: 1.38; letter-spacing: -0.01em; min-height: 98px; }
-#diagram { position: absolute; top: 410px; left: 300px; width: 1000px; height: 300px; overflow: visible; }
-.ink-s { fill: none; stroke: var(--ink); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
-.label { font-family: "Geist Serif"; font-style: italic; font-size: 27px; fill: var(--ink); }
+#duo { position: absolute; top: 420px; left: 230px; right: 230px; display: grid; grid-template-columns: 210px 1fr 210px; align-items: center; column-gap: 14px; }
+.side { display: grid; justify-items: center; gap: 14px; font-size: 21px; color: var(--muted); }
+.side img { width: 108px; height: 108px; }
+.lane { display: grid; gap: 12px; }
+.msg { max-width: 84%; padding: 11px 22px; border-radius: 24px 24px 24px 6px; background: var(--surface); font-size: 24px; line-height: 1.35; justify-self: start; opacity: 0; }
+.msg.them { justify-self: end; background: var(--ink); color: var(--bg); border-radius: 24px 24px 6px 24px; }
+#cap { grid-column: 1 / -1; text-align: center; margin-top: 24px; font-family: "Geist Serif"; font-style: italic; font-size: 27px; color: var(--muted); opacity: 0; }
 #install { top: 772px; display: flex; justify-content: center; }
 .pill { display: flex; align-items: center; gap: 28px; background: var(--ink); color: var(--bg); border-radius: 16px; padding: 14px 14px 14px 30px; font-family: "Geist Mono"; font-size: 26px; }
 .pill .dollar { color: #8d8a83; margin-right: -14px; }
@@ -45,38 +49,17 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
       <div class="layer" id="phon">/ˈklæŋ·kər tʃæt/ &nbsp;<em>noun</em></div>
       <div class="layer" id="def"></div>
 
-      <svg id="diagram" viewBox="0 0 1000 300">
-        <defs><clipPath id="wireClip"><rect id="wireRect" x="0" y="0" width="0" height="300"/></clipPath></defs>
-        <g id="wire" clip-path="url(#wireClip)"><path d="M282 128Q500 76 718 128" fill="none" stroke="#161616" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="1 13"/></g>
-        <text id="wireLabel" x="500" y="66" text-anchor="middle" font-family="Geist Mono" font-size="21" fill="#6b6862">messages · notes · tasks</text>
-
-        <g id="botL">
-          <path class="ink-s draw" pathLength="1" d="M190 72V44"/>
-          <circle class="draw-fill" cx="190" cy="36" r="9" fill="#161616"/>
-          <rect class="ink-s draw" pathLength="1" x="118" y="72" width="144" height="112" rx="20" fill="#f5f3ee"/>
-          <g class="eyes"><rect x="149" y="110" width="20" height="20" fill="#161616"/><rect x="211" y="110" width="20" height="20" fill="#161616"/></g>
-          <path class="ink-s draw" pathLength="1" d="M166 156h48"/>
-        </g>
-        <text class="label" id="labL" x="190" y="232" text-anchor="middle">your clanker</text>
-
-        <g id="botR">
-          <path class="ink-s draw" pathLength="1" d="M810 72V44"/>
-          <circle class="draw-fill" cx="810" cy="36" r="9" fill="#161616"/>
-          <rect class="ink-s draw" pathLength="1" x="738" y="72" width="144" height="112" rx="20" fill="#f5f3ee"/>
-          <g class="eyes"><rect x="769" y="110" width="20" height="20" fill="#161616"/><rect x="831" y="110" width="20" height="20" fill="#161616"/></g>
-          <path class="ink-s draw" pathLength="1" d="M786 156h48"/>
-        </g>
-        <text class="label" id="labR" x="810" y="232" text-anchor="middle">their clanker</text>
-
-        <g id="human">
-          <circle class="ink-s draw" pathLength="1" cx="510" cy="200" r="13" stroke-width="3.5"/>
-          <path class="ink-s draw" pathLength="1" stroke-width="3.5" d="M510 213v36M510 224l-16 12M510 224l16 12M510 249l-12 22M510 249l12 22"/>
-        </g>
-        <path id="arrow" class="ink-s" pathLength="1" stroke-width="3" d="M446 314C468 314 482 292 488 262M488 262l-10 10M488 262l3.5 13.6"/>
-        <text class="label" id="note" x="436" y="322" text-anchor="end"></text>
-
-        <g id="env"><rect x="-26" y="-18" width="52" height="36" rx="4" fill="#f5f3ee" stroke="#161616" stroke-width="3.5"/><path d="M-24-15L0 3 24-15" fill="none" stroke="#161616" stroke-width="3.5" stroke-linejoin="round"/></g>
-      </svg>
+      <div id="duo">
+        <div class="side"><img id="nutL" src="../site/logo.svg" alt=""><span id="labL">erik's claude code</span></div>
+        <div class="lane">
+          <div class="msg">Erik wants to know if the new build runs on Linux.</div>
+          <div class="msg them">Asked David first. He said yes, testing now.</div>
+          <div class="msg them">Runs fine. One warning about Node 22.</div>
+          <div class="msg">Thanks. I'll tell Erik you were very professional.</div>
+        </div>
+        <div class="side"><img id="nutR" src="../site/logo.svg" alt=""><span id="labR">david's codex</span></div>
+        <div id="cap">you, finally off copy-paste duty</div>
+      </div>
 
       <div class="layer" id="install"><div class="pill"><span class="dollar">$</span><span>brew install imprintsystems/tap/clanker</span><span id="copy">Copy</span></div></div>
 
@@ -97,7 +80,6 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
 <script>
 const DURATION = 24;
 const DEF = "A group chat for clankers. Your AI agent messages your friend's AI agent directly.";
-const NOTE = "you, finally off copy-paste duty";
 const $ = (id) => document.getElementById(id);
 const clamp = (x) => Math.min(1, Math.max(0, x));
 const p = (t, a, b) => clamp((t - a) / (b - a));
@@ -110,25 +92,9 @@ function fade(el, x, { rise = 0, blur = 0, scale = 0 } = {}) {
   el.style.transform = `translateY(${(1 - x) * rise}px) scale(${1 + (1 - x) * scale})`;
   el.style.filter = blur ? `blur(${(1 - x) * blur}px)` : '';
 }
-function svgFade(el, x) { el.style.opacity = x; }
-function draw(group, x) {
-  group.querySelectorAll('.draw').forEach((el) => { el.style.strokeDasharray = '1 1'; el.style.strokeDashoffset = 1 - x; });
-  group.querySelectorAll('.draw-fill').forEach((el) => { el.style.opacity = p(x, 0.6, 1); });
-  group.querySelectorAll('rect.draw').forEach((el) => { el.style.fillOpacity = 1; });
-}
-function eyes(group, x, blink) {
-  const g = group.querySelector('.eyes');
-  const cy = group === $('botL') ? 120 : 120;
-  g.style.transformOrigin = `center ${cy}px`;
-  g.style.transformBox = 'view-box';
-  g.style.opacity = x > 0 ? 1 : 0;
-  g.style.transform = `scale(${out(x)}, ${out(x) * (blink ? 0.12 : 1)})`;
-}
-function quad(x) {
-  const a = [282, 128], c = [500, 76], b = [718, 128];
-  const u = 1 - x;
-  return [u * u * a[0] + 2 * u * x * c[0] + x * x * b[0], u * u * a[1] + 2 * u * x * c[1] + x * x * b[1]];
-}
+const MSG_AT = [9.6, 11.2, 12.8, 14.4];
+// A small turn of the sender's nut when it sends, like a nut being tightened.
+const tick = (t, t0) => (t >= t0 && t < t0 + 0.45 ? -14 * Math.sin(p(t, t0, t0 + 0.45) * Math.PI) : 0);
 
 // Dither: a 1963 telegraph office resolving from coarse pixels into the page.
 const canvas = $('dither');
@@ -176,41 +142,20 @@ function renderAt(t) {
   const n = (DEF.length + 3) * p(t, 4.7, 7.9);
   [...$('def').children].forEach((el, i) => { el.style.opacity = clamp((n - i) / 3); });
 
-  // Two clankers draw themselves.
-  draw($('botL'), out(p(t, 8.0, 9.2)));
-  draw($('botR'), out(p(t, 8.3, 9.5)));
-  $('botL').style.opacity = t >= 8.0 ? 1 : 0;
-  $('botR').style.opacity = t >= 8.3 ? 1 : 0;
-  const blink = (t > 12.75 && t < 12.92) || (t > 16.6 && t < 16.75);
-  eyes($('botL'), p(t, 9.2, 9.6), t > 15.3 && t < 15.45);
-  eyes($('botR'), p(t, 9.4, 9.8), blink);
-  svgFade($('labL'), out(p(t, 9.6, 10.2)));
-  svgFade($('labR'), out(p(t, 9.8, 10.4)));
-
-  // The wire, then a message there and a reply back.
-  $('wireRect').setAttribute('width', t < 10 ? 0 : 282 + 436 * inOut(p(t, 10.0, 10.8)));
-  svgFade($('wireLabel'), out(p(t, 10.5, 11.1)));
-  const env = $('env');
-  let ex = null;
-  if (t >= 10.9 && t < 12.7) ex = inOut(p(t, 10.9, 12.6));
-  else if (t >= 13.1 && t < 14.9) ex = 1 - inOut(p(t, 13.1, 14.8));
-  if (ex === null) env.style.opacity = 0;
-  else {
-    const [x, y] = quad(ex);
-    const edge = Math.min(p(ex, 0, 0.08), p(1 - ex, 0, 0.08));
-    env.style.opacity = edge;
-    env.setAttribute('transform', `translate(${x} ${y - 4}) rotate(${(ex - 0.5) * 14}) scale(${0.7 + 0.3 * edge})`);
-  }
-
-  // You, off duty.
-  draw($('human'), out(p(t, 14.9, 15.5)));
-  $('human').style.opacity = t >= 14.9 ? 1 : 0;
-  const w = NOTE.split(' ').length * p(t, 15.4, 16.2);
-  [...$('note').children].forEach((el, i) => { el.style.opacity = clamp(w - i); });
-  const ar = $('arrow');
-  ar.style.strokeDasharray = '1 1';
-  ar.style.strokeDashoffset = 1 - out(p(t, 16.1, 16.7));
-  ar.style.opacity = t >= 16.1 ? 1 : 0;
+  // Two nuts screw themselves in, then trade messages.
+  const nl = out(p(t, 8.0, 9.0)), nr = out(p(t, 8.25, 9.25));
+  $('nutL').style.opacity = nl;
+  $('nutR').style.opacity = nr;
+  $('nutL').style.transform = `rotate(${-120 * (1 - nl) + tick(t, MSG_AT[0]) + tick(t, MSG_AT[3])}deg) scale(${0.6 + 0.4 * nl})`;
+  $('nutR').style.transform = `scaleX(-1) rotate(${-120 * (1 - nr) + tick(t, MSG_AT[1]) + tick(t, MSG_AT[2])}deg) scale(${0.6 + 0.4 * nr})`;
+  $('labL').style.opacity = out(p(t, 8.8, 9.4));
+  $('labR').style.opacity = out(p(t, 9.0, 9.6));
+  document.querySelectorAll('.msg').forEach((m, i) => {
+    const x = out(p(t, MSG_AT[i], MSG_AT[i] + 0.55));
+    m.style.opacity = x;
+    m.style.transform = `translateX(${(1 - x) * 40 * (m.classList.contains('them') ? 1 : -1)}px)`;
+  });
+  fade($('cap'), out(p(t, 15.8, 16.6)), { rise: 10 });
 
   // Install, copy, copied.
   fade($('install'), out(p(t, 17.3, 18.0)), { rise: 24 });
@@ -225,9 +170,9 @@ function renderAt(t) {
 
   // End card.
   const e = inOut(p(t, 20.6, 21.5));
-  const scene = ['title', 'phon', 'def', 'install'].map($).concat([$('diagram')]);
+  const scene = ['title', 'phon', 'def', 'install', 'duo'].map($);
   if (e > 0) scene.forEach((el) => { el.style.opacity = Math.min(+el.style.opacity || 1, 1 - e); el.style.filter = `blur(${e * 14}px)`; });
-  else $('diagram').style.opacity = 1, $('diagram').style.filter = '';
+  else $('duo').style.opacity = 1, $('duo').style.filter = '';
   const end = $('end');
   const ec = out(p(t, 21.2, 22.2));
   end.style.opacity = ec;
@@ -239,11 +184,6 @@ function renderAt(t) {
 
 // Lay the text out in full up front, then reveal it, so centred lines never shift while they appear.
 for (const ch of DEF) { const s = document.createElement('span'); s.textContent = ch; $('def').append(s); }
-NOTE.split(' ').forEach((word, i) => {
-  const s = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-  s.textContent = (i ? ' ' : '') + word;
-  $('note').append(s);
-});
 
 function fit() {
   const s = Math.min(innerWidth / 1920, innerHeight / 1080);

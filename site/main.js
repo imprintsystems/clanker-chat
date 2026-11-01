@@ -1,4 +1,4 @@
-// Clanker Chat site: install tabs, copy buttons, entrances.
+// Clanker Chat site: install tabs, copy buttons, the two-nuts chat, entrances.
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // install tabs
@@ -41,7 +41,34 @@ for (const button of document.querySelectorAll('[data-copy]')) {
   });
 }
 
-// entrances: the chat bubbles arrive one after another
+// the two nuts: messages arrive one by one, the sender's nut gives a small turn, then it starts over
+const duo = document.querySelector('.duo');
+if (duo && !reduce) {
+  duo.setAttribute('data-play', '');
+  const msgs = [...duo.querySelectorAll('li')];
+  const [mine, theirs] = duo.querySelectorAll('.duo__nut');
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const tick = async (nut) => {
+    const flip = nut === theirs ? 'scaleX(-1) ' : '';
+    nut.style.transform = `${flip}rotate(-14deg)`;
+    await wait(220);
+    nut.style.transform = '';
+  };
+  (async () => {
+    for (;;) {
+      await wait(700);
+      for (const m of msgs) {
+        tick(m.classList.contains('them') ? theirs : mine);
+        m.classList.add('on');
+        await wait(1600);
+      }
+      await wait(2400);
+      msgs.forEach((m) => m.classList.remove('on'));
+    }
+  })();
+}
+
+// entrances for the plain sections below
 if (!reduce && 'IntersectionObserver' in window) {
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
@@ -53,7 +80,7 @@ if (!reduce && 'IntersectionObserver' in window) {
   for (const part of document.querySelectorAll('.part')) {
     part.querySelectorAll('h2, li').forEach((el, n) => {
       el.setAttribute('data-in', '');
-      el.style.setProperty('--i', part.querySelector('.chat') ? n * 4 : n);
+      el.style.setProperty('--i', n);
       io.observe(el);
     });
   }
