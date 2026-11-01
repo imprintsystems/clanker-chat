@@ -1,7 +1,7 @@
 import * as prompts from '@clack/prompts';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { banner, theme as c, clean, line, printResult } from './terminal.js';
+import { banner, theme as c, clean, rows, heading, hint, printResult, printInvite } from './terminal.js';
 import { readProfile, saveProfile, launchCommand, startInstalledService } from './setup.js';
 import { discoverClients, applyClientSelection, clientIsConfigured } from './clients.js';
 import { readAccess, clientGrant, enableClient } from './access.js';
@@ -15,7 +15,7 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   const clients = discoverClients(discovery);
   const manual = { id: 'manual', label: 'Other MCP app', detected: true, available: true, hint: 'Get a configuration to copy yourself' };
   const all = [...clients, manual];
-  if (interactive && !json) { banner(agentsOnly ? 'Choose who can use your inbox.' : 'Put your agents in touch.'); p.intro(c.accent(agentsOnly ? 'Agent connections' : 'Let’s get you connected')); }
+  if (interactive && !json) { banner(agentsOnly ? 'Choose which agents can use your inbox.' : 'A group chat for clankers. Setup takes a minute.'); p.intro(c.inverse(agentsOnly ? ' clanker agents ' : ' clanker setup ')); }
   if (!agentsOnly && !name && interactive) name = unwrap(await p.text({ message: 'What should your contacts call you?', initialValue: profile.name, placeholder: 'Your name', validate: value => !value?.trim() ? 'Please enter a name.' : value.trim().length > 80 ? 'Keep it under 81 characters.' : undefined }), p);
   name ||= profile.name;
   if (!name) throw new Error('Run clanker setup in a terminal, or provide --name and --client.');
@@ -26,9 +26,8 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   if (selected === undefined && interactive) {
     const initial = all.filter(client => state.clients[client.id]?.enabled).map(client => client.id);
     if (!state.enforced) for (const client of clients.filter(client => client.detected && client.available)) if (clientIsConfigured(client, launch, { run })) initial.push(client.id);
-    p.log.info('Choose your apps. You can change access later.');
     const ordered = [...all].sort((a, b) => Number(b.detected) - Number(a.detected));
-    selected = unwrap(await p.multiselect({ message: 'Which agents can use Clanker Chat?', required: false, initialValues: [...new Set(initial)], options: ordered.map(client => ({ value: client.id, label: `${client.label}${!client.detected ? ' (not found)' : ''}`, hint: state.clients[client.id]?.enabled ? 'connected' : client.hint, disabled: !client.available })) }), p);
+    selected = unwrap(await p.multiselect({ message: 'Which of your agents can join the chat?', required: false, initialValues: [...new Set(initial)], options: ordered.map(client => ({ value: client.id, label: `${client.label}${!client.detected ? ' (not found)' : ''}`, hint: state.clients[client.id]?.enabled ? 'connected' : client.hint, disabled: !client.available })) }), p);
   }
   if (selected?.includes('none')) {
     if (selected.length !== 1) throw new Error('Use --client none on its own.');
@@ -63,52 +62,57 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   const response = { name, service: service.service, state: service.state, agents: results, manual: selected.includes('manual'), failed: failures.length };
   if (json) { console.log(JSON.stringify(response, null, 2)); return response; }
   if (!interactive) {
-    banner('Your connections'); line('Name', name); line('Inbox', service.state);
-    for (const row of results) line(row.state, row.label + (row.note ? `: ${row.note}` : ''));
-    if (selected.includes('manual')) console.log('\n  Run clanker config to copy your manual MCP settings.');
-    console.log('\n  Next: clanker invite or clanker pair\n'); return response;
+    heading('Your connections');
+    rows([['Name', clean(name)], ['Inbox', service.state], ...results.map(row => [row.label, `${row.state === 'error' ? c.bad('×') : c.good('●')} ${row.state}${row.note ? `: ${clean(row.note)}` : ''}`])]);
+    console.log();
+    if (selected.includes('manual')) hint('Copy your MCP settings with `clanker config`.');
+    hint('Next: `clanker invite` or `clanker pair`.'); return response;
   }
   for (const row of results) {
     if (row.state === 'error') p.log.error(`${row.label}: ${row.note}`);
     else p.log.success(`${row.label} ${row.state}`);
   }
-  if (selected.includes('manual')) p.log.info('For your other app, copy the output of clanker config into its MCP settings.');
-  p.log.info('Restart connected apps if needed. They may ask you to approve the new tools.');
+  const cmd = c.strong;
+  if (selected.includes('manual')) p.log.info(`For your other app, paste the output of ${cmd('clanker config')} into its MCP settings.`);
+  if (selected.length) p.log.info('Restart connected apps if needed. They may ask you to approve the new tools.');
   if(selected.includes('codex'))p.log.info('In Codex, open /hooks and trust Clanker Chat alerts once.');
-  if(selected.includes('claude'))p.log.info('Claude custom Channels are preview-only. See clanker agent claude for the explicit development opt-in.');
-  if(selected.includes('hermes'))p.log.info('Open clanker agent hermes for Hermes TUI alerts. Use /clanker to enable alerts before the first turn. The classic CLI defers notices until a turn ends.');
-  if (noService) p.log.info('Start the inbox separately with clanker start.');
-  if (failures.length) { p.outro('Some apps need attention. Run clanker agents to try again.'); return response; }
+  if(selected.includes('claude'))p.log.info(`Claude custom Channels are preview-only. See ${cmd('clanker agent claude')} for the explicit development opt-in.`);
+  if(selected.includes('hermes'))p.log.info(`Open ${cmd('clanker agent hermes')} for Hermes TUI alerts. Use /clanker to enable alerts before the first turn. The classic CLI defers notices until a turn ends.`);
+  if (noService) p.log.info(`Start the inbox separately with ${cmd('clanker start')}.`);
+  if (failures.length) { p.outro(`Some apps need attention. Run ${cmd('clanker agents')} to try again.`); return response; }
   if (agentsOnly || noService) { p.outro('Connections saved.'); return response; }
-  const next = unwrap(await p.select({ message: 'Connect with someone now?', options: [
-    { value: 'invite', label: 'Create an invite', hint: 'Share it with a friend or another device' },
-    { value: 'pair', label: 'Use an invite', hint: 'Paste a code someone shared with you' },
-    { value: 'later', label: 'I’ll do this later' }
+  const next = unwrap(await p.select({ message: 'Connect with a friend now?', options: [
+    { value: 'invite', label: 'Create an invite', hint: 'A single-use code to send them' },
+    { value: 'pair', label: 'Use an invite', hint: 'Paste the code they sent you' },
+    { value: 'later', label: 'Later' }
   ] }), p);
   if (next === 'invite') {
-    const invite = await localCall(home, 'invite'); p.note(invite.code, 'Your invite'); p.log.info('Valid for 10 minutes, single use. Share only with the intended contact.');
+    const invite = await localCall(home, 'invite');
+    p.log.success('Invite ready. Single use, valid for 10 minutes. Send it privately.');
+    console.log(`\n${invite.code}\n`);
+    p.log.info(`Your friend installs Clanker Chat, then runs ${cmd('clanker pair')} and pastes it.`);
   } else if (next === 'pair') {
     const code = unwrap(await p.text({ message: 'Paste your invite code', validate: value => !value?.trim().startsWith('cc1:') ? 'Invite codes start with cc1:.' : undefined }), p);
     const spin = p.spinner(); spin.start('Connecting…');
     try { const result = await localCall(home, 'pair', { code: code.trim() }); spin.stop(`Connected to ${clean(result.paired.name)}.`); }
     catch (error) { spin.stop('Could not connect.'); throw error; }
   }
-  p.outro('You’re ready. Run clanker to open your inbox.');
+  p.outro(`Done. Your clankers can talk now. Run ${cmd('clanker')} to open your inbox.`);
   return response;
 }
 export async function showHome(home) {
-  banner();
   let status;
-  try { status = await localCall(home, 'status'); } catch { console.log('  Your inbox is offline. Run clanker setup to reconnect.\n'); return; }
-  line('You', status.identity.name); line('Inbox', `${status.unread} unread`); line('Outbox', `${status.queued} waiting`); console.log();
+  try { status = await localCall(home, 'status'); } catch { banner(); hint('Your inbox is offline. Run `clanker setup` to start it again.'); return; }
+  banner(`Hi ${clean(status.identity.name)}. ${status.unread ? c.strong(`${status.unread} unread`) : 'Nothing new'}${status.queued ? `, ${status.queued} waiting to send` : ''}.`);
   const action = unwrap(await prompts.select({ message: 'What would you like to do?', options: [
-    { value: 'inbox', label: 'Read messages' }, { value: 'discussions', label: 'Second opinions', hint:'Agent discussions and results' }, { value: 'invite', label: 'Invite someone' }, { value: 'pair', label: 'Use an invite code' },
-    { value: 'agents', label: 'Manage agent access' }, { value: 'peers', label: 'Your contacts' }, { value: 'exit', label: 'Close' }
+    { value: 'inbox', label: 'Read messages', hint: status.unread ? `${status.unread} unread` : undefined }, { value: 'discussions', label: 'Second opinions', hint: 'Agent discussions and results' }, { value: 'invite', label: 'Invite a friend' }, { value: 'pair', label: 'Use an invite code' },
+    { value: 'agents', label: 'Choose agents' }, { value: 'peers', label: 'Contacts' }, { value: 'exit', label: 'Close' }
   ] }), prompts);
   if (action === 'exit') return;
   if (action === 'agents') return 'agents';
-  if (action === 'discussions') return printResult('discuss', await localCall(home,'discussion_list'));
-  if (action === 'invite') { const result = await localCall(home, 'invite'); prompts.note(result.code, 'Invite code'); prompts.outro('Share privately. Valid for 10 minutes.'); return; }
+  const peers = () => localCall(home, 'peers');
+  if (action === 'discussions') return printResult('discuss', await localCall(home, 'discussion_list'), { peers: await peers() });
+  if (action === 'invite') return printInvite((await localCall(home, 'invite')).code);
   if (action === 'pair') { const code = unwrap(await prompts.text({ message: 'Paste your invite code' }), prompts); return printResult('pair', await localCall(home, 'pair', { code: code.trim() })); }
-  printResult(action, await localCall(home, action));
+  printResult(action, await localCall(home, action), action === 'inbox' ? { peers: await peers() } : {});
 }

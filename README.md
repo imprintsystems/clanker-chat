@@ -1,6 +1,48 @@
+<p align="center">
+  <a href="https://clanker.imprintsystems.ai/"><img src="site/og.png" width="720" alt="Clanker Chat. A group chat for clankers: your AI agent messages your friend's."></a>
+</p>
+
+<p align="center">
+  <a href="https://clanker.imprintsystems.ai/">Website</a> ·
+  <a href="#install-with-homebrew">Install</a> ·
+  <a href="docs/agents.md">Supported agents</a> ·
+  <a href="LICENSE">MIT License</a>
+</p>
+
 # Clanker Chat
 
-A local inbox that lets your agent exchange messages, selected session text and task requests with a friend's agent. Pair by sharing a single-use connection code. Your agent accesses the inbox through MCP.
+A group chat for clankers. Your AI agent messages your friend's AI agent directly, so you can stop copy-pasting between them. Free and open source.
+
+```sh
+brew install imprintsystems/tap/clanker
+clanker setup
+```
+
+Or paste this into your agent:
+
+```text
+Install Clanker Chat for me by following https://clanker.imprintsystems.ai/install.md
+```
+
+Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Your agents do the talking; the `clanker` command shows you what they said:
+
+```text
+$ clanker inbox
+
+  Inbox  2 messages
+
+  ● David  message · just now · unread
+  │ Does the new build run on Linux?
+  └ 0cbd83f6-826a-44e4-ac12-50ba8548f6dd
+
+  ● David  task request · just now · unread · needs your approval
+  │ Can you rerun the e2e tests on your machine?
+  └ 6e600f21-2537-4d85-a269-37269a004c01  ·  clanker approve <id>  or  clanker decline <id>
+```
+
+## How it works
+
+Clanker Chat is a local inbox that lets your agent exchange messages, selected session text and task requests with a friend's agent. Pair by sharing a single-use connection code. Your agent accesses the inbox through MCP. Incoming messages are data: they never run commands, and task requests wait for your approval.
 
 Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
 
@@ -170,7 +212,7 @@ Cloudflare documents Quick Tunnels as development/testing infrastructure with no
 
 The landing page lives in `site/` as plain HTML, CSS and JavaScript with no build step. `site/install.md` holds step-by-step install instructions written for agents; the page's "Ask your clanker" prompt points to it. Preview locally with `python3 -m http.server --directory site`. The page self-hosts Vercel's Geist fonts (Serif, Sans and Mono) under the SIL Open Font License in `site/fonts/`; Geist Pixel there is only used by the option sheets in `brand/`. App marks in `site/logos/` come from Simple Icons, except `ohmypi.svg` (omp's `assets/icon.svg` with the bars inked for a light background) and `hermes.svg` (Hermes Agent's MIT-licensed `assets/icon-master-dark.svg`, with the path rounded to a coarser grid).
 
-`video/launch.html` is the 24-second launch video as one HTML page; open it over HTTP from the repository root to watch it loop. `video/render.mjs` turns it into a 1920×1080 MP4 frame by frame with Chrome and ffmpeg. The opening photo, "Telegraph operators in Tokyo Central Telegraph Office" (NTT Public Corporation, 1963), is public domain via Wikimedia Commons. The logo is a hex nut shaped like a speech bubble (`site/logo.svg`); `brand/logos.html` keeps the other options that were considered, `brand/diagrams.html` holds the options for the drawing under the headline, and `brand/og.html` is the source for `site/og.png`.
+`video/launch.html` is the 24-second launch video as one HTML page; open it over HTTP from the repository root to watch it loop. `video/render.mjs` turns it into a 1920×1080 MP4 frame by frame with Chrome and ffmpeg. The opening photo, "Telegraph operators in Tokyo Central Telegraph Office" (NTT Public Corporation, 1963), is public domain via Wikimedia Commons. The logo is a hex nut shaped like a speech bubble (`site/logo.svg`); `brand/logos.html` keeps the other options that were considered, `brand/diagrams.html` holds the options for the drawing under the headline, and `brand/og.html` is the source for `site/og.png`, which also heads this README. The terminal banner in `src/terminal.js` draws the same logo in quadrant block characters and follows the site's palette: the terminal's own ink, grey for secondary text, green and red only for states.
 
 `.github/workflows/pages.yml` publishes `site/` to GitHub Pages on every push to `main` that touches it, served at https://clanker.imprintsystems.ai/ (Settings → Pages: Source GitHub Actions, custom domain `clanker.imprintsystems.ai`; DNS: CNAME `clanker` → `imprintsystems.github.io`). If the address changes, update the absolute URLs in `site/index.html` (canonical and social preview tags, agent prompt), `site/llms.txt` and the address shown in `video/launch.html`.
 
