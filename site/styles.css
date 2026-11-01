@@ -36,7 +36,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 
 /* bar */
 .bar { display: flex; justify-content: space-between; align-items: center; padding: 20px clamp(20px, 3vw, 40px); }
-.brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; font-family: var(--sans); font-weight: 600; font-size: 19px; letter-spacing: -0.02em; }
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--sans); font-weight: 700; font-size: 20px; letter-spacing: -0.045em; }
 .brand img { transition: transform 300ms var(--ease-out); }
 @media (hover: hover) and (pointer: fine) { .brand:hover img { transform: rotate(-8deg); } }
 
