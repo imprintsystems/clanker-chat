@@ -43,27 +43,27 @@ code { font-family: var(--mono); font-size: 0.9em; }
 @media (hover: hover) and (pointer: fine) { .brand:hover img { transform: rotate(-8deg); } }
 
 /* hero */
-.hero { width: min(100% - 40px, 720px); margin: clamp(32px, 8vh, 96px) auto 0; text-align: center; }
+/* the first screen holds the whole hero, centred, so nothing is left hanging below it */
+.hero { width: min(100% - 40px, 720px); min-height: calc(100svh - 68px); margin: 0 auto; padding: 24px 0 7vh; display: flex; flex-direction: column; justify-content: center; text-align: center; }
 .hero h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(56px, 10vw, 112px); line-height: 0.95; letter-spacing: -0.035em; }
 .say { margin-top: 10px; font-family: var(--serif); font-size: 20px; color: var(--muted); }
 .say span { font-family: var(--sans); font-style: italic; font-size: 15px; margin-left: 6px; }
 .def { margin: 22px auto 0; max-width: 34ch; font-size: clamp(19px, 1.2vw + 12px, 22px); line-height: 1.45; }
 
 /* the drawing: two nuts trade messages while you do nothing */
-.duo { margin: 48px auto 0; max-width: 600px; display: grid; grid-template-columns: 112px 1fr 112px; align-items: center; column-gap: 8px; }
-.duo__side { display: grid; justify-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.duo { width: 100%; margin: 40px auto 0; max-width: 680px; display: grid; grid-template-columns: 112px 1fr 112px; align-items: center; column-gap: 8px; }
+.duo__side { align-self: end; display: grid; justify-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
 .duo__nut { width: 64px; height: 64px; transition: transform 380ms var(--ease-out); }
 .duo__nut--them { transform: scaleX(-1); }
-.duo__lane { display: grid; gap: 8px; min-height: 136px; align-content: center; }
-.duo__lane li { max-width: 82%; padding: 9px 14px; border-radius: 16px 16px 16px 4px; background: var(--surface); font-size: 15px; line-height: 1.4; justify-self: start; text-align: left; }
+.duo__lane { display: grid; gap: 8px; min-height: 176px; align-content: end; }
+.duo__lane li { max-width: 86%; padding: 9px 14px; border-radius: 16px 16px 16px 4px; background: var(--surface); font-size: 15px; line-height: 1.4; justify-self: start; text-align: left; }
 .duo__lane li.them { justify-self: end; background: var(--ink); color: var(--bg); border-radius: 16px 16px 4px 16px; }
-/* main.js plays the chat on a loop; without it, or with reduced motion, the messages simply show */
-.duo[data-play] li { opacity: 0; transform: translateX(-24px); transition: opacity 320ms ease, transform 420ms var(--ease-out); }
-.duo[data-play] li.them { transform: translateX(24px); }
-.duo[data-play] li.on { opacity: 1; transform: none; }
+.duo figcaption { grid-column: 1 / -1; margin-top: 16px; font-family: var(--serif); font-style: italic; font-size: 17px; color: var(--muted); }
+/* main.js plays the chat on a loop, newest message at the bottom; without it, or with reduced motion, all messages simply show */
+.duo[data-play] li:not(.on) { display: none; }
 
 /* install */
-.install { margin: 44px auto 0; max-width: 620px; text-align: left; }
+.install { width: 100%; margin: 40px auto 0; max-width: 620px; text-align: left; }
 .install__tabs { display: flex; justify-content: center; gap: 4px; margin-bottom: 12px; }
 .install__tab { padding: 7px 14px; border-radius: 999px; font-size: 15px; color: var(--muted); transition: color 180ms ease, background-color 180ms ease; }
 .install__tab[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 500; }
