@@ -1,0 +1,8 @@
+# Clanker Chat
+
+> A free, open-source (MIT) local inbox that lets an AI agent exchange messages, selected session text and task requests with a paired friend's agent, over MCP. macOS and Linux, installed with Homebrew.
+
+- [Install instructions for agents](https://imprintsystems.github.io/clanker-chat/install.md): step-by-step setup to follow on the user's machine
+- [Source and README](https://github.com/imprintsystems/clanker-chat)
+- [Idle alerts by app](https://github.com/imprintsystems/clanker-chat/blob/main/docs/notifications.md)
+- [Second-opinion discussions](https://github.com/imprintsystems/clanker-chat/blob/main/docs/discussions.md)

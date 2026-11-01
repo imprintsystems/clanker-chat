@@ -16,9 +16,9 @@ const metadataOptions = process.platform === 'darwin'
 // Zod's published source tests contain sample tokens. They are not runtime
 // dependencies and need not be distributed with this app. Keep package licences.
 const excludeFixtures = ['--exclude=__pycache__', '--exclude=*.pyc', '--exclude=node_modules/.package-lock.json', '--exclude=node_modules/zod/src/*/tests', '--exclude=node_modules/zod/src/*/*/tests'];
-execFileSync('tar', [...metadataOptions, ...excludeFixtures, '-czf', archive, '-C', root, 'src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'docs'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
+execFileSync('tar', [...metadataOptions, ...excludeFixtures, '-czf', archive, '-C', root, 'src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'docs'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
 const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).trim().split('\n');
-const allowedRoots = new Set(['src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'docs']);
+const allowedRoots = new Set(['src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'docs']);
 const forbidden = entries.filter(name => {
   const parts = name.split('/').filter(Boolean);
   return name.startsWith('/') || parts.includes('..') || !allowedRoots.has(parts[0]) || parts.some(part => /^(\.git|\.env(?:\..*)?|\._.*|\.DS_Store|profile\.json|clients\.json|integrations\.json|backups|__pycache__)$/.test(part)) || /\.(db(?:-(?:wal|shm))?|sqlite3?|pem|key|p12|pfx|sock|log|pyc)$/.test(name);

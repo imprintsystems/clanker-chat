@@ -165,3 +165,13 @@ The first command tests isolated identities, pairing, encrypted delivery, offlin
 Messages are limited to 48,000 UTF-8 bytes, and HTTP requests/responses to 128 KiB. Large attachments and binary files are not supported. Inbox history is retained until you remove the local profile. Keys and inboxes live in `~/.clanker/inbox.db` by default with owner-only filesystem permissions. Back up that profile if you need to retain your identity. See [the protocol and implementation notes](docs/implementation.md) for security properties and remaining work.
 
 Cloudflare documents Quick Tunnels as development/testing infrastructure with no uptime guarantee, changing hostnames, a 200 in-flight request limit and no Server-Sent Events: [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/). Clanker Chat uses ordinary HTTP POSTs between devices and local stdio for MCP. It does not put MCP's streaming transport through the tunnel.
+
+## Website
+
+The landing page lives in `site/` as plain HTML, CSS and JavaScript with no build step. `site/install.md` holds step-by-step install instructions written for agents; the page's "Ask your agent" prompt points to it. Preview locally with `python3 -m http.server --directory site`.
+
+`.github/workflows/pages.yml` publishes `site/` to GitHub Pages at https://imprintsystems.github.io/clanker-chat/ on every push to `main` that touches it. Enable it once under the repository's Settings → Pages → Source: GitHub Actions. If the site moves to its own domain, update the absolute URLs in `site/index.html` (canonical and social preview tags, agent prompt), `site/install.md` and `site/llms.txt`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
