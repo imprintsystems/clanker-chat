@@ -89,7 +89,6 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .apps li { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px 8px 10px; background: var(--surface); border-radius: 999px; font-size: 15px; transition: transform 200ms var(--ease-out); }
 @media (hover: hover) and (pointer: fine) { .apps li:hover { transform: translateY(-2px); } }
 .apps img { width: 18px; height: 18px; }
-.mono-mark { width: 18px; height: 18px; display: grid; place-items: center; font-family: var(--serif); font-size: 17px; line-height: 1; }
 
 .fine { display: grid; gap: 14px; }
 .fine li { color: var(--muted); }
