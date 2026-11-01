@@ -1,4 +1,4 @@
-// Clanker Chat site: install tabs, copy buttons, the hero window, entrances.
+// Clanker Chat site: install tabs, copy buttons, entrances.
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // install tabs
@@ -41,19 +41,7 @@ for (const button of document.querySelectorAll('[data-copy]')) {
   });
 }
 
-// the hero window steps through pairing, sending and arriving
-const frames = [...document.querySelectorAll('.frame')];
-if (!reduce && frames.length > 1) {
-  let i = 0;
-  setInterval(() => {
-    if (document.hidden) return;
-    frames[i].classList.remove('is-on');
-    i = (i + 1) % frames.length;
-    frames[i].classList.add('is-on');
-  }, 3200);
-}
-
-// entrances for the sections below the hero
+// entrances: the chat bubbles arrive one after another
 if (!reduce && 'IntersectionObserver' in window) {
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
@@ -62,10 +50,10 @@ if (!reduce && 'IntersectionObserver' in window) {
       io.unobserve(e.target);
     }
   }, { rootMargin: '0px 0px -10% 0px' });
-  for (const block of document.querySelectorAll('.block')) {
-    block.querySelectorAll('h2, dl > div, .block__body > p, details').forEach((el, n) => {
+  for (const part of document.querySelectorAll('.part')) {
+    part.querySelectorAll('h2, li').forEach((el, n) => {
       el.setAttribute('data-in', '');
-      el.style.setProperty('--i', n);
+      el.style.setProperty('--i', part.querySelector('.chat') ? n * 4 : n);
       io.observe(el);
     });
   }

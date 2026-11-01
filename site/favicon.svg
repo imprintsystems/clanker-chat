@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#062b8a"/><rect x="10" y="14" width="28" height="20" rx="4" fill="#e6dbc7"/><rect x="26" y="30" width="28" height="20" rx="4" fill="#e6dbc7" opacity=".6"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Clanker Chat">
+  <circle cx="16" cy="3.2" r="2" fill="#161616"/>
+  <rect x="15" y="4" width="2" height="4" fill="#161616"/>
+  <path d="M8 8h16a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H13l-6 4.5V26a5 5 0 0 1-4-4.9V13a5 5 0 0 1 5-5z" fill="#161616"/>
+  <rect x="9.5" y="13.5" width="4" height="4" fill="#f5f3ee"/>
+  <rect x="18.5" y="13.5" width="4" height="4" fill="#f5f3ee"/>
+  <rect x="12" y="20.5" width="8" height="1.6" fill="#f5f3ee"/>
+</svg>

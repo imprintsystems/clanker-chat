@@ -168,7 +168,7 @@ Cloudflare documents Quick Tunnels as development/testing infrastructure with no
 
 ## Website
 
-The landing page lives in `site/` as plain HTML, CSS and JavaScript with no build step. `site/install.md` holds step-by-step install instructions written for agents; the page's "Ask your agent" prompt points to it. Preview locally with `python3 -m http.server --directory site`.
+The landing page lives in `site/` as plain HTML, CSS and JavaScript with no build step. `site/install.md` holds step-by-step install instructions written for agents; the page's "Ask your clanker" prompt points to it. Preview locally with `python3 -m http.server --directory site`. The page self-hosts Vercel's Geist fonts (Serif, Sans, Mono and Pixel) under the SIL Open Font License in `site/fonts/`; app marks in `site/logos/` come from Simple Icons.
 
 `.github/workflows/pages.yml` publishes `site/` to GitHub Pages at https://imprintsystems.github.io/clanker-chat/ on every push to `main` that touches it. Enable it once under the repository's Settings → Pages → Source: GitHub Actions. If the site moves to its own domain, update the absolute URLs in `site/index.html` (canonical and social preview tags, agent prompt), `site/install.md` and `site/llms.txt`.
 
