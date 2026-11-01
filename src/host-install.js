@@ -22,6 +22,11 @@ function managedFile(path, contents, home, client, remove, write) {
   mkdirSync(home,{recursive:true,mode:0o700});const temp=`${registry}.${randomUUID()}.tmp`;
   writeFileSync(temp,JSON.stringify(saved,null,2)+'\n',{mode:0o600,flag:'wx'});renameSync(temp,registry);
 }
+// Codex connections made before 0.3.0 have no alert hook; setup adds it.
+export function codexAlertsInstalled(client) {
+  const file = join(dirname(client.file), 'hooks.json');
+  return existsSync(file) && readFileSync(file, 'utf8').includes('"Clanker Chat alerts"');
+}
 export function installNotifications(client, launch, home, { remove=false, write } = {}) {
   if (client.id === 'omp') managedFile(join(dirname(client.file),'extensions/clanker-chat.js'),readFileSync(join(assets,'omp.js'),'utf8'),home,client,remove,write);
   if (client.id === 'hermes') for (const name of ['plugin.yaml','__init__.py']) managedFile(join(dirname(client.file),'plugins/clanker-chat',name),readFileSync(join(assets,'hermes',name),'utf8'),home,client,remove,write);

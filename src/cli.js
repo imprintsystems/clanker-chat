@@ -55,13 +55,19 @@ async function main() {
   if (command === 'setup' || command === 'agents') {
     const { discoverClients } = await import('./clients.js'); const { readAccess } = await import('./access.js');
     if (command === 'agents' && (values.list || (!interactive && !values.client))) {
-      const access = readAccess(home);
-      const rows_ = discoverClients().map(({ id, label, detected, available, hint }) => ({ id, label, detected, available, hint, connected: !!access.clients[id]?.enabled }));
+      const access = readAccess(home); const { codexAlertsInstalled } = await import('./host-install.js');
+      const rows_ = discoverClients().map(client => {
+        const { id, label, detected, available, hint } = client; const connected = !!access.clients[id]?.enabled;
+        return { id, label, detected, available, hint, connected, ...(id === 'codex' && connected ? { alerts: codexAlertsInstalled(client) } : {}) };
+      });
       if (values.json) return console.log(JSON.stringify(rows_, null, 2));
       heading('Agents on this computer');
       const pad = Math.max(...rows_.map(row => row.label.length)) + 3;
-      for (const row of rows_) console.log(`  ${row.connected ? theme.good('●') : theme.dim('○')} ${row.label.padEnd(pad)}${theme.dim(row.connected ? 'connected' : row.hint)}`);
-      console.log(); hint('Choose access with `clanker agents`.'); return;
+      for (const row of rows_) console.log(`  ${row.connected ? theme.good('●') : theme.muted('○')} ${row.label.padEnd(pad)}${theme.muted(row.connected ? 'connected' : row.hint)}${row.alerts === false ? theme.warn(' · alerts not set up') : ''}`);
+      console.log();
+      if (rows_.some(row => row.alerts === false)) hint('Codex was connected before alerts existed. Run `clanker agents`, keep Codex selected, then trust the hook in Codex with `/hooks`.');
+      else hint('Choose access with `clanker agents`.');
+      return;
     }
     const { runSetup } = await import('./onboarding.js');
     const result = await runSetup({ home, cli, name: values.name, selected: values.client?.flatMap(value => value.split(',')).filter(Boolean), noService: !!values['no-service'], json: !!values.json, agentsOnly: command === 'agents', interactive });
@@ -107,7 +113,7 @@ async function main() {
     case 'pair': {
       let code = target;
       if (!code && interactive) {
-        const p = await import('@clack/prompts'); code = await p.text({ message: 'Paste your invite code' });
+        const p = await import('./prompts.js'); code = await p.text({ message: 'Paste your invite code', placeholder: 'cc1:…' });
         if (p.isCancel(code)) return;
       } else if (!code) {
         const { createInterface } = await import('node:readline/promises'); const input = createInterface({ input: process.stdin, terminal: false });
@@ -133,6 +139,6 @@ async function main() {
 main().catch(error => {
   if (error.constructor.name === 'Cancelled') { process.exitCode = 0; return; }
   process.exitCode = 1;
-  if (error.syscall === 'connect' && ['ECONNREFUSED', 'ENOENT'].includes(error.code)) { failure('Your inbox is not running.'); return hint('Start it with `clanker setup`, or `clanker start` for a source checkout.'); }
+  if (error.syscall === 'connect' && ['ECONNREFUSED', 'ENOENT'].includes(error.code)) return failure('Your inbox is not running.', 'Start it with `clanker setup`, or `clanker start` for a source checkout.');
   failure(error.message);
 });
