@@ -47,7 +47,7 @@ const duo = document.querySelector('.duo');
 if (duo && !reduce) {
   const lane = duo.querySelector('.duo__lane');
   const msgs = [...lane.children];
-  const WINDOW = 4;
+  const WINDOW = 3;
   const [mine, theirs] = duo.querySelectorAll('.duo__nut');
   const ease = 'cubic-bezier(0.22, 1, 0.36, 1)';
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
