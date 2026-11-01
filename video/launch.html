@@ -31,6 +31,7 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
 #cursor { position: absolute; left: 0; top: 0; width: 34px; z-index: 5; }
 #end { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 22px; }
 #end h2 { margin: 0; font-family: "Geist Serif"; font-weight: 400; font-size: 132px; letter-spacing: -0.045em; line-height: 1; }
+#endLogo { width: 116px; height: 116px; justify-self: center; margin-bottom: 6px; }
 #end p { margin: 0; font-size: 33px; color: var(--muted); }
 #end .u { font-family: "Geist Mono"; font-size: 27px; color: var(--ink); margin-top: 14px; }
 </style>
@@ -80,6 +81,7 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
       <div class="layer" id="install"><div class="pill"><span class="dollar">$</span><span>brew install imprintsystems/tap/clanker</span><span id="copy">Copy</span></div></div>
 
       <div id="end">
+        <img id="endLogo" src="../site/logo.svg" alt="">
         <h2>Clanker Chat</h2>
         <p>Your AI agent, meet your friend's AI agent.</p>
         <p>Free and open source.</p>
@@ -231,6 +233,8 @@ function renderAt(t) {
   end.style.opacity = ec;
   end.style.filter = `blur(${(1 - ec) * 18}px)`;
   end.style.transform = `scale(${1 + (1 - ec) * 0.04})`;
+  // The nut screws itself in.
+  $('endLogo').style.transform = `rotate(${-120 * (1 - out(p(t, 21.1, 22.4)))}deg)`;
 }
 
 // Lay the text out in full up front, then reveal it, so centred lines never shift while they appear.
@@ -250,7 +254,7 @@ fit();
 
 window.renderAt = renderAt;
 window.DURATION = DURATION;
-window.ready = Promise.all([document.fonts.ready, img.decode()]).then(() => {
+window.ready = Promise.all([document.fonts.ready, img.decode(), $('endLogo').decode()]).then(() => {
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { renderAt(+q.get('t')); return; }
   if (q.has('capture')) { renderAt(0); return; }
