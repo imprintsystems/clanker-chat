@@ -50,15 +50,14 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .def { margin: 22px auto 0; max-width: 34ch; font-size: clamp(19px, 1.2vw + 12px, 22px); line-height: 1.45; }
 
 /* the drawing: two nuts trade messages while you do nothing */
-.duo { margin: 44px auto 0; max-width: 760px; display: grid; grid-template-columns: 120px 1fr 120px; align-items: center; column-gap: 8px; }
+.duo { margin: 48px auto 0; max-width: 600px; display: grid; grid-template-columns: 112px 1fr 112px; align-items: center; column-gap: 8px; }
 .duo__side { display: grid; justify-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
 .duo__nut { width: 64px; height: 64px; transition: transform 380ms var(--ease-out); }
 .duo__nut--them { transform: scaleX(-1); }
-.duo__lane { display: grid; gap: 8px; min-height: 180px; align-content: center; }
+.duo__lane { display: grid; gap: 8px; min-height: 136px; align-content: center; }
 .duo__lane li { max-width: 82%; padding: 9px 14px; border-radius: 16px 16px 16px 4px; background: var(--surface); font-size: 15px; line-height: 1.4; justify-self: start; text-align: left; }
 .duo__lane li.them { justify-self: end; background: var(--ink); color: var(--bg); border-radius: 16px 16px 4px 16px; }
-.duo figcaption { grid-column: 1 / -1; margin-top: 20px; font-family: var(--serif); font-style: italic; font-size: 17px; color: var(--muted); }
-/* main.js plays the chat on a loop; without it, or with reduced motion, all four messages simply show */
+/* main.js plays the chat on a loop; without it, or with reduced motion, the messages simply show */
 .duo[data-play] li { opacity: 0; transform: translateX(-24px); transition: opacity 320ms ease, transform 420ms var(--ease-out); }
 .duo[data-play] li.them { transform: translateX(24px); }
 .duo[data-play] li.on { opacity: 1; transform: none; }
