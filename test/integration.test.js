@@ -13,10 +13,10 @@ import { clientGrant, enableClient, disableClient } from '../src/access.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, timeout = 6000) { const start = Date.now(); while (Date.now() - start < timeout) { if (await check()) return; await pause(50); } throw new Error('Condition timed out'); }
-async function setup(t) {
+async function setup(t, options = {}) {
   const base = mkdtempSync(join(tmpdir(), 'ap-'));
-  const a = await new ClankerChat({ home: join(base, 'a'), name: 'Erik', local: true }).start();
-  const b = await new ClankerChat({ home: join(base, 'b'), name: 'David', local: true }).start();
+  const a = await new ClankerChat({ home: join(base, 'a'), name: 'Erik', local: true, ...options }).start();
+  const b = await new ClankerChat({ home: join(base, 'b'), name: 'David', local: true, ...options }).start();
   t.after(async () => { await a.close(); await b.close(); rmSync(base, { recursive: true, force: true }); });
   const invite = await a.command('invite'); await b.command('pair', { code: invite.code });
   return { base, a, b, invite };
@@ -91,6 +91,23 @@ test('one device restarting can announce its new address to a friend that stayed
   await a.command('send', { to: 'David', text: 'Found your new address.' });
   await until(() => replacement.store.list().length === 1);
 });
+test('contacts show online while their inbox answers and offline with a last-seen time after it stops', async t => {
+  const onlineFor = 500, { a, b } = await setup(t, { onlineFor });
+  const david = async () => (await a.command('peers')).find(peer => peer.identity.name === 'David');
+  const erik = async () => (await b.command('peers')).find(peer => peer.identity.name === 'Erik');
+  assert.equal((await david()).online, true, 'pairing is contact');
+  assert.equal((await erik()).online, true);
+  await until(async () => (await david()).online === false && (await erik()).online === false);
+  await b.command('send', { to: 'Erik', text: 'Still here.' });
+  await until(() => a.store.list().length === 1);
+  assert.equal((await david()).online, true, 'a received message counts');
+  await until(async () => (await erik()).online === true, 1000).catch(() => assert.fail('a delivery receipt counts'));
+  const before = Date.now();
+  await b.close();
+  await until(async () => (await david()).online === false);
+  const seen = (await david()).seen;
+  assert.ok(seen <= before && before - seen < onlineFor, 'last seen is when David last answered');
+});
 test('MCP client discovers tools, reads an inbox, waits, and receives resource notifications', async t => {
   const { a, b } = await setup(t);
   const client = new Client({ name: 'integration-test', version: '1.0.0' });
@@ -104,7 +121,6 @@ test('MCP client discovers tools, reads an inbox, waits, and receives resource n
   assert.ok(tools.tools.some(tool => tool.name === 'clanker_send'));
   assert.equal(tools.tools.some(tool => /approve|execute|shell/.test(tool.name)), false);
   await client.subscribeResource({ uri: 'clanker://inbox' });
-  await pause(2200); // Establish notification cursor before the message arrives.
   const waiting = client.callTool({ name: 'clanker_wait', arguments: { after: 0, seconds: 5 } });
   const long = `MCP notification proof. ${'Reference draft line. '.repeat(40)}`;
   await a.command('send', { to: 'David', text: long });
@@ -137,7 +153,7 @@ test('selected MCP client credentials work and revocation also blocks a pending 
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve('src/cli.js'), 'mcp'], env: { ...process.env, CLANKER_HOME: b.options.home, CLANKER_CLIENT_ID: 'hermes', CLANKER_CLIENT_TOKEN: grant.token }, stderr: 'pipe' }));
   const status = await client.callTool({ name: 'clanker_status', arguments: {} }); assert.equal(status.isError, undefined);
   const waiting = client.callTool({ name: 'clanker_wait', arguments: { after: 0, seconds: 5 } });
-  await pause(100); disableClient(b.options.home, 'hermes');
+  await until(() => b.listenerCount('message') > 0); disableClient(b.options.home, 'hermes');
   await a.command('send', { to: 'David', text: 'Do not disclose this after revocation.' });
   const result = await waiting;
   assert.equal(result.isError, true); assert.match(result.content[0].text, /not connected/); assert.doesNotMatch(result.content[0].text, /Do not disclose/);

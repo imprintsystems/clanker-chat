@@ -75,7 +75,7 @@ function backupConfig(client, original, home) {
     if (!existsSync(backup)) writeFileSync(backup, original, { mode: 0o600, flag: 'wx' });
   }
 }
-export function atomicConfigWrite(client, original, next, home) {
+function atomicConfigWrite(client, original, next, home) {
   const path = existsSync(client.file) ? realpathSync(client.file) : client.file;
   if ((existsSync(path) ? readFileSync(path, 'utf8') : '') !== original) throw new Error(`${client.label} settings changed during setup. Try again; nothing was overwritten.`);
   if (next === original) return;
@@ -99,9 +99,10 @@ function shape(client, launch) {
 function owned(entry, launch) {
   if (!entry) return true;
   const command = Array.isArray(entry.command) ? entry.command[0] : entry.command;
-  const args = Array.isArray(entry.command) ? entry.command.slice(1) : entry.args || [];
+  const args = Array.isArray(entry.command) ? entry.command : entry.args || [];
+  const offset = Array.isArray(entry.command) ? 1 : 0;
   const env = entry.env || entry.environment || {};
-  return command === launch.command && JSON.stringify(args) === JSON.stringify(launch.args) && env.CLANKER_HOME === launch.env.CLANKER_HOME;
+  return command === launch.command && Array.isArray(args) && args.length - offset === launch.args.length && launch.args.every((arg, i) => args[i + offset] === arg) && env.CLANKER_HOME === launch.env.CLANKER_HOME;
 }
 export function clientIsConfigured(client, launch, { run = runDefault } = {}) {
   try {
@@ -158,9 +159,9 @@ export function configureClient(client, launch, home, { remove = false, run = ru
 export function applyClientSelection(home, selected, launch, clients, options = {}) {
   const results = []; const before = readAccess(home);
   for (const client of clients) {
-    const legacy = !before.enforced && client.detected && client.available && clientIsConfigured(client, launch, options);
-    if (!selected.includes(client.id) && !before.clients[client.id]?.enabled && !legacy) continue;
-    if (!selected.includes(client.id)) {
+    const chosen = selected.includes(client.id);
+    if (!chosen && !before.clients[client.id]?.enabled && (before.enforced || !client.detected || !client.available || !clientIsConfigured(client, launch, options))) continue;
+    if (!chosen) {
       disableClient(home, client.id); // Revokes running sessions even if config removal fails.
       try { configureClient(client, launch, home, { ...options, remove: true }); results.push({ id: client.id, label: client.label, state: 'disconnected' }); }
       catch { results.push({ id: client.id, label: client.label, state: 'disconnected', note: 'Access revoked. Its old settings entry could not be removed.' }); }

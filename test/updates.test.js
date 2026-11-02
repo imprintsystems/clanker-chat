@@ -32,7 +32,23 @@ test('a newer release is offered once, checked at most daily, and failures retry
   now += 86_400_001; await updates.tick();
   assert.equal(calls, 2); assert.equal(updates.notice(true), null); // Same version stays shown.
 
-  const failing = new Updates(memory({ version: VERSION }), { check: true, fetch: async () => { throw new Error('offline'); }, now: () => now });
-  await failing.tick(); assert.equal(failing.notice(true), null);
+  let failures = 0;
+  const failedStore = memory({ version: VERSION });
+  const options = { check: true, fetch: async () => { failures++; throw new Error('offline'); }, now: () => now };
+  const failing = new Updates(failedStore, options);
+  await failing.tick(); await failing.tick(); assert.equal(failing.notice(true), null); assert.equal(failures, 1);
+  now += 3_599_999; await failing.tick(); assert.equal(failures, 1);
+  now++; await failing.tick(); assert.equal(failures, 2);
+  await new Updates(failedStore, options).tick(); assert.equal(failures, 2);
   assert.equal(newer('0.10.0', '0.9.9'), true); assert.equal(newer('0.3.1', '0.3.1'), false);
+});
+
+test('overlapping update checks do not send duplicate network requests', async () => {
+  let finish, calls = 0;
+  const response = new Promise(resolve => { finish = resolve; });
+  const updates = new Updates(memory(), { check: true, fetch: () => { calls++; return response; } });
+  const pending = updates.tick();
+  await updates.tick(); assert.equal(calls, 1);
+  finish(await formula(VERSION)());
+  await pending;
 });

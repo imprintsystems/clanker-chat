@@ -10,14 +10,16 @@ export async function readJSON(request) {
     if (size > MAX_BODY) throw new Error('Request too large');
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString());
+  return JSON.parse((chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, size)).toString());
 }
 export function json(response, status, value) {
   if (!response.destroyed) response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(value));
 }
+// Inside an answer to a bridge question, every local call says so, and the
+// daemon lets it only read: an answer cannot ask back or start other work.
 export function localCall(home, command, args = {}, client) {
   return new Promise((resolve, reject) => {
-    const headers = { 'content-type': 'application/json', ...(client ? { 'x-clanker-origin': 'mcp', 'x-clanker-client': client.id || '', 'x-clanker-token': client.token || '', ...(client.worker ? { 'x-clanker-worker':client.worker } : {}) } : {}) };
+    const headers = { 'content-type': 'application/json', ...(process.env.CLANKER_BRIDGE_RUN ? { 'x-clanker-run': process.env.CLANKER_BRIDGE_RUN } : {}), ...(client ? { 'x-clanker-origin': 'mcp', 'x-clanker-client': client.id || '', 'x-clanker-token': client.token || '', ...(client.worker ? { 'x-clanker-worker':client.worker } : {}) } : {}) };
     const request = http.request({ socketPath: socketPath(home), path: '/local', method: 'POST', headers, timeout: 30_000 }, async response => {
       try {
         const value = await readJSON(response);

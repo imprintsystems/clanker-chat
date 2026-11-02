@@ -13,11 +13,14 @@ function managedFile(path, contents, home, client, remove, write) {
   const original = existsSync(path) ? readFileSync(path,'utf8') : '';
   if (original && original !== contents && saved[path] !== digest(original)) throw new Error(`${client.label} notification file was edited or belongs to another integration. It was left unchanged.`);
   if (remove) {
-    if (original && (saved[path] === digest(original) || original === contents)) unlinkSync(path);
+    if (original) unlinkSync(path);
+    if (!Object.hasOwn(saved,path)) return;
     delete saved[path];
   } else {
     write({id:client.id,label:client.label,file:path},original,contents,home);
-    saved[path]=digest(contents);
+    const nextHash=digest(contents);
+    if(saved[path]===nextHash)return;
+    saved[path]=nextHash;
   }
   mkdirSync(home,{recursive:true,mode:0o700});const temp=`${registry}.${randomUUID()}.tmp`;
   writeFileSync(temp,JSON.stringify(saved,null,2)+'\n',{mode:0o600,flag:'wx'});renameSync(temp,registry);

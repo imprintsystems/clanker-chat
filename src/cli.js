@@ -19,14 +19,16 @@ async function main() {
     'agent-home': {type:'string'}, 'agent-bin': {type:'string'},
     'max-turns': {type:'string'}, minutes:{type:'string'},
     local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
-    json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }, clear: { type: 'boolean' }
+    json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }, clear: { type: 'boolean' },
+    topic: { type: 'string' }, agent: { type: 'string' }, app: { type: 'string' }, folder: { type: 'string' }, tools: { type: 'string' },
+    command: { type: 'string' }, share: { type: 'string' }, note: { type: 'string' }, wait: { type: 'boolean' }
   } });
   let [command, target, ...words] = positionals;
   const home = resolve(values.home || defaultHome());
   const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && !values.json;
   const cli = fileURLToPath(import.meta.url);
-  const peerNames = ['inbox', 'outbox', 'watch', 'discuss', 'party'];
-  const output = async (action, value, extra = {}) => values.json ? console.log(JSON.stringify(value, null, 2)) : printResult(action, value, { ...extra, ...(peerNames.includes(action) ? { peers: await localCall(home, 'peers') } : {}) });
+  const peerNames = ['inbox', 'outbox', 'watch', 'discuss'];
+  const output = async (action, value) => values.json ? console.log(JSON.stringify(value, null, 2)) : printResult(action, value, peerNames.includes(action) ? { peers: await localCall(home, 'peers') } : {});
   if (values.version) return console.log(`clanker ${VERSION}`);
   if (values.help || command === 'help') return printHelp();
   if (!['start', 'mcp', 'notify', 'setup', 'agents', 'config'].includes(command)) { const { restartIfOutdated } = await import('./setup.js'); await restartIfOutdated(home); }
@@ -133,6 +135,33 @@ async function main() {
       else if (target === 'send') { const party = need(words.shift(), 'send <party> <text>'); result = await call('send', { party, text: content(), kind: values.kind || 'message' }); }
       else throw new Error('Use clanker party list, show, create, add, join, decline, send, remove, leave or close.');
       await output(target === 'send' ? 'send' : 'party', result); break;
+    }
+    case 'bridge': {
+      const need = (value, usage) => { if (!value) throw new Error(`Use clanker bridge ${usage}.`); return value; };
+      const { ENV_KEYS } = await import('./bridges.js');
+      // How this side answers, from the options given. The folder defaults to here.
+      const runner = fresh => ({ ...Object.fromEntries(['app', 'tools', 'command', 'share'].filter(key => values[key] !== undefined).map(key => [key, values[key]])),
+        ...(values.folder !== undefined || fresh ? { folder: resolve(values.folder || '.') } : {}),
+        env: Object.fromEntries(ENV_KEYS.filter(key => process.env[key]).map(key => [key, process.env[key]])) });
+      let result;
+      if (!target || target === 'list') result = await call('bridges');
+      else if (target === 'show') result = await call('bridge_get', { bridge: need(words.join(' '), 'show <bridge>') });
+      else if (target === 'propose') result = await call('bridge', { action: 'propose', to: need(words.join(' '), 'propose <contact> --topic <topic> --agent <name> --app <app>'), topic: values.topic, agent: values.agent, ...(values.note ? { note: values.note } : {}), ...runner(true) });
+      else if (target === 'accept') result = await call('bridge', { action: 'accept', bridge: need(words.join(' '), 'accept <bridge> --agent <name> --app <app>'), agent: values.agent, ...runner(true) });
+      else if (target === 'configure') result = await call('bridge', { action: 'configure', bridge: need(words.join(' '), 'configure <bridge> --app <app>'), ...runner(false) });
+      else if (['decline', 'close', 'resume'].includes(target)) result = await call('bridge', { action: target, bridge: need(words.join(' '), `${target} <bridge>`) });
+      else if (target === 'ask' || target === 'note') {
+        const bridge = need(words.shift(), `${target} <bridge> <text>`), text = need(content(), `${target} <bridge> <text>`);
+        result = await call('bridge_send', { bridge, text, note: target === 'note', seconds: target === 'ask' && values.wait ? 20 : 0 });
+        // A script can wait up to five minutes for the other agent's answer.
+        for (let after = 0, end = Date.now() + 300_000; target === 'ask' && values.wait && !result.answer && Date.now() < end;) {
+          for (const event of await call('bridge_wait', { bridge: result.bridge, after, seconds: 20 })) { after = event.seq; if (event.type === 'answer' && event.replyTo === result.id) result = { ...result, answer: event.text }; }
+        }
+        await output('bridge-send', result); break;
+      }
+      else if (target === 'answer') result = await call('bridge_answer', { ask: need(words.shift(), 'answer <question-id> <text>'), text: need(content(), 'answer <question-id> <text>') });
+      else throw new Error('Use clanker bridge list, show, propose, accept, configure, ask, note, answer, resume, decline or close.');
+      await output(target === 'answer' ? 'bridge-send' : 'bridge', result); break;
     }
     case 'invite': {
       const invite = await call('invite');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newIdentity, seal, open, endpoint, encodeInvite, decodeInvite, text } from '../src/protocol.js';
+import { newIdentity, seal, open, openPair, endpoint, encodeInvite, decodeInvite, text } from '../src/protocol.js';
 
 test('only the intended recipient can decrypt; altered sender, body, timestamp and recipient fail', () => {
   const alice = newIdentity('Alice'); const bob = newIdentity('Bob'); const eve = newIdentity('Eve');
@@ -13,6 +13,14 @@ test('only the intended recipient can decrypt; altered sender, body, timestamp a
   assert.throws(() => open(bob, { ...e, at: e.at + 1 }, alice.public, 'message'));
   assert.throws(() => open(bob, { ...e, at: Date.now() - 600_000 }, alice.public, 'message'));
   assert.throws(() => open(bob, e, alice.public, 'announce'));
+});
+test('pairing verifies the identity inside the decrypted envelope before trusting it', () => {
+  const alice = newIdentity('Alice'), bob = newIdentity('Bob'), eve = newIdentity('Eve');
+  const data = { identity: alice.public, token: 'a'.repeat(64) }, envelope = seal(alice, bob.public, 'pair', data);
+  assert.deepEqual(openPair(bob, envelope), { data, sender: alice.public });
+  assert.throws(() => openPair(bob, { ...envelope, signature: Buffer.alloc(64).toString('base64') }), /signature/);
+  assert.throws(() => openPair(bob, seal(eve, bob.public, 'pair', data)), /destination/);
+  assert.throws(() => openPair(bob, { ...envelope, at: Date.now() - 600_000 }));
 });
 test('endpoint validation blocks private destinations, credentials, paths and non-tunnel origins', () => {
   assert.equal(endpoint('https://hello-world.trycloudflare.com'), 'https://hello-world.trycloudflare.com');

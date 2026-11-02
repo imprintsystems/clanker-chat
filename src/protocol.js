@@ -8,14 +8,14 @@ import { isIP } from 'node:net';
 export const MAX_BODY = 128 * 1024;
 export const text = z.string().min(1).max(48_000).refine(value => Buffer.byteLength(value, 'utf8') <= 48_000, 'Text must fit within 48,000 UTF-8 bytes');
 const key = z.string().min(30).max(200);
-export const identitySchema = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().min(1).max(80), signKey: key, boxKey: key }).strict();
+const identitySchema = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().min(1).max(80), signKey: key, boxKey: key }).strict();
 export const discussionSummary = z.object({
   conclusion: z.string().min(1).max(2000),
   evidence: z.array(z.string().min(1).max(500)).max(6),
   disagreements: z.array(z.string().min(1).max(500)).max(6),
   nextStep: z.string().min(1).max(1000)
 }).strict().refine(value => Buffer.byteLength(JSON.stringify(value),'utf8') <= 12_000, 'Summary must fit within 12,000 UTF-8 bytes');
-export const discussionEvent = z.discriminatedUnion('type', [
+const discussionEvent = z.discriminatedUnion('type', [
   z.object({ type:z.literal('proposal'), question:z.string().min(1).max(2000), scope:z.literal('supplied-evidence-only'), maxTurns:z.number().int().min(2).max(8), expiresAt:z.number().int().positive() }).strict(),
   z.object({ type:z.literal('accept') }).strict(),
   z.object({ type:z.literal('reply'), turn:z.number().int().min(1).max(8) }).strict(),
@@ -30,7 +30,7 @@ export const MAX_PARTY = 8;
 export const partyName = z.string().trim().min(1).max(60);
 const card = z.string().min(1).max(200);
 const partyMember = z.object({ identity: identitySchema, endpoint: z.string().max(256), card }).strict();
-export const partyEvent = z.discriminatedUnion('type', [
+const partyEvent = z.discriminatedUnion('type', [
   z.object({ type:z.literal('invite'), name:partyName, invitation:z.string().uuid(), members:z.array(identitySchema).min(1).max(MAX_PARTY - 1) }).strict(),
   z.object({ type:z.literal('accept'), invitation:z.string().uuid(), card }).strict(),
   z.object({ type:z.literal('decline'), invitation:z.string().uuid() }).strict(),
@@ -38,16 +38,35 @@ export const partyEvent = z.discriminatedUnion('type', [
   z.object({ type:z.literal('leave') }).strict(),
   z.object({ type:z.literal('close') }).strict()
 ]);
+// Bridges: a lasting link between one agent on each side. The owners agree once;
+// afterwards the agents ask, answer and share notes on their own. Each side
+// keeps how its agent runs to itself; only names and the topic cross.
+export const BRIDGE_TEXT = 8000;
+export const bridgeAgent = z.string().trim().min(1).max(60);
+export const bridgeTopic = z.string().trim().min(1).max(300);
+const bridgeEvent = z.discriminatedUnion('type', [
+  z.object({ type:z.literal('propose'), topic:bridgeTopic, agent:bridgeAgent }).strict(),
+  z.object({ type:z.literal('accept'), agent:bridgeAgent }).strict(),
+  z.object({ type:z.literal('decline') }).strict(),
+  z.object({ type:z.literal('ask') }).strict(),
+  z.object({ type:z.literal('answer') }).strict(),
+  z.object({ type:z.literal('note') }).strict(),
+  z.object({ type:z.literal('close') }).strict()
+]);
 export const messageSchema = z.object({
-  id: z.string().uuid(), kind: z.enum(['message', 'session', 'task_request', 'task_result', 'discussion', 'party']),
+  id: z.string().uuid(), kind: z.enum(['message', 'session', 'task_request', 'task_result', 'discussion', 'party', 'bridge']),
   text, thread: z.string().uuid(), replyTo: z.string().uuid().optional(),
   createdAt: z.number().int().positive(), discussion:discussionEvent.optional(),
-  party: z.string().uuid().optional(), partyEvent: partyEvent.optional()
+  party: z.string().uuid().optional(), partyEvent: partyEvent.optional(),
+  bridge: z.string().uuid().optional(), bridgeEvent: bridgeEvent.optional()
 }).strict()
   .refine(value => (value.kind === 'discussion') === !!value.discussion, 'Discussion metadata requires the discussion message kind')
   .refine(value => (value.kind === 'party') === !!value.partyEvent, 'Party events require the party message kind')
   .refine(value => !value.party || ['party', 'message', 'session'].includes(value.kind), 'Only messages and session text can go to a party')
-  .refine(value => value.kind !== 'party' || !!value.party, 'Party events name their party');
+  .refine(value => value.kind !== 'party' || !!value.party, 'Party events name their party')
+  .refine(value => value.kind === 'bridge' ? !!value.bridgeEvent && value.thread === value.bridge : !value.bridge && !value.bridgeEvent, 'Bridge events name their bridge as the thread')
+  .refine(value => value.kind !== 'bridge' || value.text.length <= BRIDGE_TEXT, 'Bridge text must fit within 8,000 characters')
+  .refine(value => value.bridgeEvent?.type !== 'answer' || !!value.replyTo, 'An answer names its question');
 const envelopeSchema = z.object({
   v: z.literal(1), type: z.enum(['pair', 'receipt', 'message', 'announce']),
   id: z.string().uuid(), sender: z.string().length(64), recipient: z.string().length(64),
@@ -100,10 +119,13 @@ export function seal(identity, recipient, type, data) {
 export function open(identity, envelope, sender, type, { checkTime = true } = {}) {
   const e = envelopeSchema.parse(envelope);
   validateIdentity(sender);
+  verifyEnvelope(identity, e, sender, type, checkTime);
+  return decrypt(identity, e);
+}
+function verifyEnvelope(identity, e, sender, type, checkTime = true) {
   if (e.type !== type || e.recipient !== identity.public.id || e.sender !== sender.id) throw new Error('Wrong envelope destination or type');
   if (checkTime && Math.abs(Date.now() - e.at) > 300_000) throw new Error('Envelope expired; check device clocks');
   if (!verify(null, signedData(e), pub(sender.signKey), Buffer.from(e.signature, 'base64'))) throw new Error('Invalid signature');
-  return decrypt(identity, e);
 }
 function decrypt(identity, e) {
   const decipher = createDecipheriv('aes-256-gcm', secret(createPrivateKey(identity.boxPrivate), pub(e.ephemeral), e.sender, e.recipient), Buffer.from(e.iv, 'base64'));
@@ -118,7 +140,8 @@ export function openPair(identity, value) {
   if (e.type !== 'pair' || e.recipient !== identity.public.id) throw new Error('Invalid pairing envelope');
   const data = decrypt(identity, e);
   const sender = validateIdentity(data.identity);
-  return { data: open(identity, e, sender, 'pair'), sender };
+  verifyEnvelope(identity, e, sender, 'pair');
+  return { data, sender };
 }
 export function encodeInvite(value) { return `cc1:${Buffer.from(JSON.stringify(value)).toString('base64url')}`; }
 export function decodeInvite(code, allowLoopback = false) {
@@ -131,12 +154,12 @@ export function decodeInvite(code, allowLoopback = false) {
 }
 export async function post(origin, route, payload, allowLoopback = false) {
   const base = endpoint(origin, allowLoopback);
-  const body = JSON.stringify(payload);
-  if (Buffer.byteLength(body) > MAX_BODY) throw new Error('Request too large');
+  const body = JSON.stringify(payload), bytes = Buffer.byteLength(body);
+  if (bytes > MAX_BODY) throw new Error('Request too large');
   const url = new URL(`${base}${route}`);
   return new Promise((resolve, reject) => {
     const network = url.protocol === 'https:' ? https : http;
-    const request = network.request(url, { method: 'POST', signal: AbortSignal.timeout(10_000), lookup: tunnelLookup, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } }, response => {
+    const request = network.request(url, { method: 'POST', signal: AbortSignal.timeout(10_000), lookup: tunnelLookup, headers: { 'content-type': 'application/json', 'content-length': bytes } }, response => {
       const chunks = []; let size = 0;
       response.on('data', chunk => {
         size += chunk.length;
@@ -146,7 +169,7 @@ export async function post(origin, route, payload, allowLoopback = false) {
       response.on('error', reject);
       response.on('end', () => {
         if (response.statusCode !== 200) return reject(new Error(`Peer returned HTTP ${response.statusCode}`));
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString())); } catch (error) { reject(error); }
+        try { resolve(JSON.parse((chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, size)).toString())); } catch (error) { reject(error); }
       });
     });
     request.on('error', error => reject(new Error(`Peer connection failed (${error.code || error.name})`, { cause: error })));
@@ -157,7 +180,7 @@ export async function post(origin, route, payload, allowLoopback = false) {
 // New Quick Tunnel names sometimes hit a negative cache in a system resolver.
 // Restrict the fallback to the exact tunnel domain and retain normal TLS hostname
 // verification. No hardcoded edge IPs, TLS bypass, or arbitrary DNS proxying.
-export function tunnelLookup(hostname, options, callback) {
+function tunnelLookup(hostname, options, callback) {
   lookup(hostname, options, (error, address, family) => {
     if (!error || error.code !== 'ENOTFOUND' || !/^[a-z0-9-]+\.trycloudflare\.com$/.test(hostname)) return callback(error, address, family);
     resolveTunnel(hostname).then(ip => {
@@ -171,7 +194,7 @@ async function resolveTunnel(hostname) {
   if (!response.ok) throw new Error('DNS fallback unavailable');
   const chunks = []; let size = 0;
   for await (const chunk of response.body) { size += chunk.length; if (size > 8192) throw new Error('DNS response too large'); chunks.push(chunk); }
-  const result = JSON.parse(Buffer.concat(chunks).toString());
+  const result = JSON.parse(Buffer.concat(chunks, size).toString());
   const ip = result.Status === 0 && result.Answer?.find(answer => answer.type === 1 && isIP(answer.data) === 4)?.data;
   if (!ip || /^(0|10|127|169\.254|192\.168)\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip)) throw new Error('DNS fallback returned no public IPv4 address');
   return ip;

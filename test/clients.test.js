@@ -99,6 +99,14 @@ test('malformed settings and conflicting servers stay byte-for-byte unchanged', 
     assert.equal(applyClientSelection(home, [id], launch, [client])[0].state, 'error'); assert.equal(readFileSync(client.file, 'utf8'), body);
     const conflict = id === 'hermes' ? 'mcp_servers:\n  clanker:\n    command: different\n' : '{"mcpServers":{"clanker":{"command":"different"}}}'; save(client, conflict);
     assert.equal(applyClientSelection(home, [id], launch, [client])[0].state, 'error'); assert.equal(readFileSync(client.file, 'utf8'), conflict);
+    for (const entry of [
+      { ...launch, args: [] }, { ...launch, args: [...launch.args, 'other'] },
+      { ...launch, env: { CLANKER_HOME: `${home}-other` } }
+    ]) {
+      const body = JSON.stringify({ [client.key]: { clanker: entry } }); save(client, body);
+      assert.equal(applyClientSelection(home, [id], launch, [client])[0].state, 'error');
+      assert.equal(readFileSync(client.file, 'utf8'), body);
+    }
   }
 });
 test('Codex uses its native CLI and keeps private connection credentials out of setup results', t => {

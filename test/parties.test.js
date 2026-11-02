@@ -207,7 +207,7 @@ test('a party holds at most 8 people counting invitations, and only paired conta
   await assert.rejects(erik.command('party', { action: 'add', party: 'Big', contact: stranger.id }), /only through a party/);
 });
 
-test('an agent joins only with the user\'s yes: a dialog where the app supports it, otherwise a confirmed answer in chat', async t => {
+test('an agent joins only with the user\'s yes: a dialog where the app can show it, otherwise a confirmed answer in chat', async t => {
   const f = await fixture(t), { erik, david } = f.people;
   const agent = async answer => {
     const client = new Client({ name: 'synthetic-agent', version: '1.0' }, answer ? { capabilities: { elicitation: {} } } : {});
@@ -236,7 +236,20 @@ test('an agent joins only with the user\'s yes: a dialog where the app supports 
   assert.equal(refused.error, true); assert.match(refused.text, /said no/);
   assert.match(no.asked[0], /Join the party "Dialog" from Erik/);
   assert.equal(david.parties.find('Dialog').state, 'invited');
+  // Closing a dialog that was on screen is a no too.
+  const closed = await agent(async () => { await new Promise(resolve => setTimeout(resolve, 400)); return { action: 'cancel' }; });
+  const dismissed = await closed.call({ action: 'join', party: 'Dialog', userConfirmed: true });
+  assert.equal(dismissed.error, true); assert.match(dismissed.text, /closed the confirmation dialog/);
+  assert.equal(david.parties.find('Dialog').state, 'invited');
+  // An app that cancels at once never showed it (Claude Code in print mode): ask in chat instead.
+  const headless = await agent(() => ({ action: 'cancel' }));
+  const unasked = await headless.call({ action: 'join', party: 'Dialog' });
+  assert.equal(unasked.error, true); assert.match(unasked.text, /Ask the user first: "Join the party "Dialog"/);
+  assert.equal(david.parties.find('Dialog').state, 'invited');
   const yes = await agent(() => ({ action: 'accept', content: { confirm: true } }));
   assert.equal((await yes.call({ action: 'join', party: 'Dialog' })).error, false);
   await until(() => david.parties.find('Dialog').state === 'active');
+  await invite('Headless');
+  assert.equal((await headless.call({ action: 'join', party: 'Headless', userConfirmed: true })).error, false);
+  await until(() => david.parties.find('Headless').state === 'active');
 });

@@ -17,12 +17,10 @@ try {
   await b.start(); console.log('Second temporary Cloudflare tunnel ready.');
   // Quick Tunnel DNS can take a few seconds to propagate. Each failed attempt
   // gets a fresh code because a timeout may occur after the peer accepted it.
-  let paired = false;
   await until(async () => {
-    try { const invite = await a.command('invite'); await b.command('pair', { code: invite.code }); paired = true; return true; }
+    try { const invite = await a.command('invite'); await b.command('pair', { code: invite.code }); return true; }
     catch (error) { console.log(`Pairing not ready: ${error.message}`); await pause(1500); return false; }
   });
-  assert.equal(paired, true);
   const forward = await a.command('send', { to: b.store.identity.public.id, text: 'Synthetic tunnel message A to B.' });
   await until(() => b.store.list().length === 1);
   await until(() => a.store.list({ direction: 'out' })[0].state === 'delivered');

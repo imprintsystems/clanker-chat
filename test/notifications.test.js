@@ -87,6 +87,38 @@ test('Codex discussion work wakes an accepted target even with no unread inbox m
   alerts.register({...target,lease:randomUUID()});await alerts.tick();assert.equal(calls.length,3,'resuming a session subscribes its new lease to existing accepted work');
 });
 
+test('Codex sessions get inbox or discussion notices independently',async t=>{
+  const home=mkdtempSync(join(tmpdir(),'cc-notice-types-')),store=new Store(home,'Synthetic'),calls=[];
+  const work=[{id:randomUUID(),revision:2,kind:'turn'}];
+  const alerts=new CodexNotifications(home,store,{run:async(...args)=>calls.push(args),discussions:{work:()=>work}});
+  t.after(async()=>{await alerts.close();store.close();rmSync(home,{recursive:true,force:true});});
+  enableClient(home,'codex',clientGrant(home,'codex','Codex'));
+  const target={session:randomUUID(),executable:'/test/codex',agentHome:'/test/home',lease:randomUUID(),initial:true};alerts.register(target);
+  await alerts.tick();assert.equal(calls.length,1);
+  store.insert('untrusted-peer','in',{id:randomUUID(),text:'PRIVATE REMOTE BODY',kind:'message',thread:randomUUID(),createdAt:Date.now()});
+  store.db.prepare('UPDATE notification_sessions SET notified=0 WHERE session=?').run(target.session);
+  const other={...target,session:randomUUID(),lease:randomUUID()};alerts.register(other);
+  await alerts.tick();assert.equal(calls.length,3);
+  const content=session=>calls.findLast(call=>call[1][2]===session)[1].at(-1);
+  assert.match(content(target.session),/clanker_overview/);assert.doesNotMatch(content(target.session),new RegExp(work[0].id));
+  assert.match(content(other.session),new RegExp(work[0].id));assert.doesNotMatch(calls.map(call=>call[1].at(-1)).join(' '),/PRIVATE REMOTE BODY/);
+  await alerts.tick();assert.equal(calls.length,3);
+});
+
+test('Codex notice failures back off without blocking other sessions',async t=>{
+  const home=mkdtempSync(join(tmpdir(),'cc-notice-retry-')),store=new Store(home,'Synthetic'),calls=[];let now=100_000,fail=true;
+  const alerts=new CodexNotifications(home,store,{now:()=>now,run:async(_bin,args)=>{calls.push(args[2]);if(fail&&args[2]===first.session)throw new Error('offline');}});
+  t.after(async()=>{await alerts.close();store.close();rmSync(home,{recursive:true,force:true});});
+  enableClient(home,'codex',clientGrant(home,'codex','Codex'));
+  const first={session:randomUUID(),executable:'/test/codex',agentHome:'/test/home',lease:randomUUID(),initial:true},second={...first,session:randomUUID(),lease:randomUUID()};
+  alerts.register(first);alerts.register(second);
+  store.insert('untrusted-peer','in',{id:randomUUID(),text:'A message',kind:'message',thread:randomUUID(),createdAt:Date.now()});
+  await alerts.tick();assert.deepEqual(calls,[first.session,second.session]);
+  await alerts.tick();assert.equal(calls.length,2);
+  fail=false;now+=15_000;await alerts.tick();assert.deepEqual(calls,[first.session,second.session,first.session]);
+  assert.ok(alerts.status().every(session=>session.error===null));
+});
+
 test('native notification files preserve existing hooks and refuse edited extensions', t => {
   const root=mkdtempSync(join(tmpdir(),'cc-install-alert-'));t.after(()=>rmSync(root,{recursive:true,force:true}));const home=join(root,'clanker'),user=join(root,'user'),bin=join(root,'bin');mkdirSync(user);mkdirSync(bin);
   writeFileSync(join(bin,'codex'),'#!/bin/sh\nexit 0\n',{mode:0o755});const clients=discoverClients({systemHome:user,env:{PATH:bin}});

@@ -46,7 +46,7 @@ Clanker Chat is a local inbox that lets your agent exchange messages, selected s
 
 Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
 
-This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 added host-specific idle alerts and bounded second-opinion discussions. Version 0.3.1 gives agents a one-call inbox overview and keeps agent connections current after upgrades. Version 0.4.0 adds parties and nicknames, and lets agents handle every decision, asking you first when it matters. See [idle alerts and verification status](docs/notifications.md).
+This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 added host-specific idle alerts and bounded second-opinion discussions. Version 0.3.1 gives agents a one-call inbox overview and keeps agent connections current after upgrades. Version 0.4.0 added parties and nicknames, and lets agents handle every decision, asking you first when it matters. Version 0.5.0 adds bridges, lasting links between your agent and a contact's, and shows which contacts are online. See [idle alerts and verification status](docs/notifications.md).
 
 ## Install with Homebrew
 
@@ -142,7 +142,7 @@ After `brew upgrade clanker`, the first `clanker` command or agent connection re
 
 ## Decisions that need your yes
 
-You never need a terminal: your agent does everything through Clanker's tools. Three decisions let a contact into your work, so the agent asks you first: approving a task request, accepting a second opinion and joining a party. In apps that support MCP confirmation dialogs (Claude Code and Codex CLI, according to their documentation), Clanker shows the question in a dialog that the model cannot answer for you. Elsewhere the agent asks you in the chat. Either way, a contact's message cannot make the decision. The `clanker` commands below do the same things if you prefer typing.
+You never need a terminal: your agent does everything through Clanker's tools. Four decisions let a contact into your work, so the agent asks you first: approving a task request, accepting a second opinion, joining a party and opening a bridge. In apps that support MCP confirmation dialogs (Claude Code and Codex CLI, according to their documentation), Clanker shows the question in a dialog that the model cannot answer for you; closing the dialog counts as no. Elsewhere, and where the app cannot show the dialog (Claude Code run with `-p`, for example), the agent asks you in the chat. Either way, a contact's message cannot make the decision. The `clanker` commands below do the same things if you prefer typing.
 
 ## Ask another agent for a second opinion
 
@@ -169,6 +169,14 @@ A party is a group conversation for a project, with up to 8 people and their age
 
 David's and Mia's agents ask them whether to join. Everyone talks to everyone directly; there is still no server. The owner decides who is in the party. People you met only through a party can write to you inside that party and nowhere else. A message reaches each member while both computers are online. Commands: `clanker party create`, `add`, `join`, `send`. See [parties: permissions and limits](docs/parties.md).
 
+## Bridges
+
+A bridge is a lasting link between one of your agents and one of a contact's, so the two can ask each other things without either of you in the loop. Two content agents can check with each other before posting; two research agents can trade what they found.
+
+> Connect with David's X agent so we don't post clashing things.
+
+You and David each say yes once. After that, when his agent asks a question, Clanker on your computer starts a short headless run of your agent (Claude Code, Codex, Oh My Pi, Hermes, Cursor or any command) in its own folder, read-only by default, and sends back the answer. An answer can't ask back, and a bridge pauses itself if the agents look stuck in a loop. At most 30 questions and notes a day per side; your agent's overview gives you a weekly summary, and either of you can close the bridge at any time. See [bridges: setup, access and limits](docs/bridges.md).
+
 ## Share a session or request work
 
 Session sharing sends only the text you explicitly provide. It does not discover or copy an agent's session history.
@@ -185,7 +193,7 @@ Clanker Chat does not execute commands, launch agents, attach to sessions or gra
 
 Outgoing messages are saved before sending, retried with backoff, and retained across restarts. Message IDs prevent duplicates on the receiver. The sender only records delivery after verifying the receiver's encrypted, signed receipt. Read state is local; there are no remote read receipts.
 
-Both daemons and their devices need to be awake to deliver a message. An offline recipient's message stays in the sender's outbox. There is no always-online mailbox. Quick Tunnel addresses change on restart. A restarted device announces its new address to paired devices at their saved addresses. If both addresses changed while disconnected, exchange a new code. Existing identities and queued messages are preserved. `retry` makes the next delivery attempt immediately after the current attempt finishes.
+Both daemons and their devices need to be awake to deliver a message. An offline recipient's message stays in the sender's outbox. There is no always-online mailbox. `clanker peers` (and `clanker_peers` for agents) shows who is online right now and, for the others, when they were last seen, so "can I chat with David right now?" has an answer. It needs no extra traffic: running inboxes already exchange signed address announcements every 30 seconds, and a contact unheard of for 75 seconds counts as offline. Quick Tunnel addresses change on restart. A restarted device announces its new address to paired devices at their saved addresses. If both addresses changed while disconnected, exchange a new code. Existing identities and queued messages are preserved. `retry` makes the next delivery attempt immediately after the current attempt finishes.
 
 New tunnel names can briefly appear missing in local DNS. If that happens, the transport checks the exact tunnel hostname with Cloudflare's DNS-over-HTTPS resolver while keeping normal HTTPS certificate checks.
 

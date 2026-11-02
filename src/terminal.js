@@ -32,6 +32,7 @@ const t = theme;
 export const clean = value => stripVTControlCharacters(String(value ?? '')).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
 // Remote text keeps its line breaks; every other control character is neutralised.
 const cleanLines = value => stripVTControlCharacters(String(value ?? '')).replace(/\t/g, '  ').split(/\r?\n/).map(part => part.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trimEnd());
+const bodyLines = value => cleanLines(value).flatMap(line => wrap(line, Math.min(64, width() - 12)));
 export const width = () => Math.max(48, Math.min(process.stdout.columns || Number(env.COLUMNS) || 80, 96));
 const say = (text = '') => console.log(text);
 const visible = text => stripVTControlCharacters(text).length;
@@ -55,7 +56,7 @@ export function wrap(text, max) {
 // A chat bubble like the ones on the website: a flat rectangle whose half-block
 // top and bottom rows give it half a line of padding. Their messages are paper
 // on ink, yours are ink on paper's dark twin.
-export function bubble(lines, { mine = false, indent = 2 } = {}) {
+function bubble(lines, { mine = false, indent = 2 } = {}) {
   const pad = ' '.repeat(indent);
   if (!enabled) return lines.map(line => `${pad}${mine ? '' : '│ '}${line}${mine ? ' │' : ''}`);
   const fill = mine ? PALETTE.surface : PALETTE.paper, ink = mine ? PALETTE.paper : PALETTE.ink;
@@ -86,7 +87,7 @@ export function rows(pairs) {
   const pad = Math.max(...pairs.map(([label]) => label.length)) + 3;
   for (const [label, value] of pairs) say(`  ${t.muted(label.padEnd(pad))}${value}`);
 }
-export function success(message) { say(`\n  ${t.good('✓')} ${message}\n`); }
+function success(message) { say(`\n  ${t.good('✓')} ${message}\n`); }
 export function failure(message, tip) { console.error(`\n  ${t.bad('×')} ${clean(message)}\n`); if (tip) hint(tip, console.error); }
 
 const relative = time => {
@@ -105,7 +106,7 @@ function message(row, names, direction) {
   const meta = [relative(row.payload.createdAt), row.partyName && `in ${clean(row.partyName)}`, KIND[row.payload.kind], mine && (STATE[row.state] || clean(row.state))].filter(Boolean).join(' · ');
   const pending = !mine && row.payload.kind === 'task_request' && row.decision === 'pending';
   const status = pending ? `  ${t.warn('needs your approval')}` : !mine && row.payload.kind === 'task_request' ? `  ${t.muted(clean(row.decision))}` : '';
-  const text = cleanLines(row.payload.text).flatMap(line => wrap(line, Math.min(64, width() - 12)));
+  const text = bodyLines(row.payload.text);
   const right = mine ? Math.max(2, width() - 8 - Math.max(...text.map(visible))) : 2;
   const title = `${unread ? t.paper('● ') : ''}${t.strong(mine ? `To ${who}` : who)}  ${t.muted(meta)}${status}`;
   say(mine ? ' '.repeat(Math.max(2, width() - 4 - visible(title))) + title : `  ${title}`);
@@ -125,7 +126,7 @@ export function printResult(command, result, { peers = [] } = {}) {
       rows([['Discussion', row.id], ['Agent', clean(row.client || 'chosen when accepting')], ['Scope', 'Supplied evidence only. No device access, nothing runs.'], ['Replies', `${row.turn} of ${row.maxTurns}`], ['Deadline', new Date(row.expiresAt).toLocaleString()]]);
       if (row.transcript) for (const event of row.transcript) {
         say(`\n  ${t.muted(`${event.direction === 'out' ? 'You' : clean(names.get(row.peer) || 'Contact')} · ${event.payload.discussion.type} · ${event.state}`)}`);
-        for (const line of bubble(cleanLines(event.payload.text).flatMap(line => wrap(line, Math.min(64, width() - 12))), { mine: event.direction === 'out' })) say(line);
+        for (const line of bubble(bodyLines(event.payload.text), { mine: event.direction === 'out' })) say(line);
       }
       if (row.summary) { say(); rows([['Conclusion', clean(row.summary.conclusion)], ...row.summary.evidence.map(item => ['Evidence', clean(item)]), ...row.summary.disagreements.map(item => ['Disagreement', clean(item)]), ['Next step', clean(row.summary.nextStep)]]); }
       say();
@@ -147,6 +148,31 @@ export function printResult(command, result, { peers = [] } = {}) {
     if (!Array.isArray(result) && result.state === 'active') hint(`Write to everyone with \`clanker party send "${clean(result.name)}" <text>\`.`);
     return;
   }
+  if (command === 'bridge') {
+    const list = Array.isArray(result) ? result : [result];
+    heading('Bridges', Array.isArray(result) && list.length ? String(list.length) : '');
+    if (!list.length) return hint('No bridges yet. Ask your agent to connect it with a contact\'s agent.');
+    const STATES = { proposed: t.warn('waiting for a yes'), active: t.good('open'), paused: t.warn('paused'), declined: 'declined', closed: 'closed' };
+    for (const row of list) {
+      say(`  ${t.strong(clean(`${row.yourAgent || 'Your agent'} ↔ ${row.with}'s ${row.theirAgent || 'agent'}`))}  ${STATES[row.state] || clean(row.state)}\n`);
+      const how = row.answeredBy && `${clean(row.answeredBy.label)} · ${row.answeredBy.tools}${row.answeredBy.folder ? ` · ${clean(row.answeredBy.folder)}` : ''}`;
+      rows([['Bridge', row.id], ['Topic', clean(row.topic)], ...(how ? [['Answers with', how]] : []), ...(row.share ? [['May share', clean(row.share)]] : []), ...(row.paused ? [['Paused', clean(row.paused)]] : []), ['Last 24 hours', `${row.today.sent} of ${row.today.limit} questions and notes sent`]]);
+      for (const event of row.transcript || []) {
+        say(`\n  ${t.muted(`${event.from === 'you' ? 'You' : clean(event.from)} · ${event.type} · ${relative(Date.parse(event.at))}${event.problem ? ` · ${clean(event.problem)}` : ''}`)}`);
+        for (const line of bubble(bodyLines(event.text), { mine: event.from === 'you' })) say(line);
+      }
+      say();
+      if (row.state === 'proposed' && row.proposedBy === 'them') hint(`Accept with \`clanker bridge accept ${row.id} --agent <name> --app <app> --folder <path>\`, or \`clanker bridge decline ${row.id}\`.`);
+      if (row.state === 'paused') hint(`Look at the exchange with \`clanker bridge show ${row.id}\`, then \`clanker bridge resume ${row.id}\` or \`clanker bridge close ${row.id}\`.`);
+    }
+    return;
+  }
+  if (command === 'bridge-send') {
+    if (!result.answer) { success(`Sent to ${t.strong(clean(result.to))}.`); return hint(result.next ? 'No answer yet. Read it later with `clanker bridge show <bridge>`.' : 'It arrives as soon as both computers are online.'); }
+    success(`${t.strong(clean(result.to))} answered:`);
+    for (const line of bubble(bodyLines(result.answer), { mine: false })) say(line);
+    return say();
+  }
   if (command === 'status') {
     say(`\n  ${t.strong(clean(result.identity?.name || 'Not set up'))}   ${result.online ? `${t.good('●')} online` : `${t.muted('○ offline')}`}\n`);
     rows([['Inbox', result.unread ? t.strong(`${result.unread} unread`) : 'nothing new'], ['Outbox', result.queued ? `${result.queued} waiting to send` : 'all delivered'], ...(result.version ? [['Version', result.version]] : [])]);
@@ -156,7 +182,11 @@ export function printResult(command, result, { peers = [] } = {}) {
     heading('Contacts', result.length ? String(result.length) : '');
     if (!result.length) return hint('No contacts yet. Create a code with `clanker invite` and send it to a friend.');
     const pad = Math.max(...result.map(peer => clean(contactName(peer)).length)) + 3;
-    for (const peer of result) say(`  ${peer.revoked ? t.bad('×') : t.good('●')} ${t.strong(clean(contactName(peer)).padEnd(pad))}${t.muted(peer.revoked ? 'blocked' : peer.partyOnly ? 'through a party only' : 'connected')}${peer.nickname ? t.muted(` · calls themselves ${clean(peer.identity.name)}`) : ''}\n    ${t.faint(peer.id)}`);
+    for (const peer of result) {
+      const icon = peer.revoked ? t.bad('×') : peer.online ? t.good('●') : t.muted('○');
+      const state = peer.revoked ? 'blocked' : peer.online ? 'online' : peer.online === null ? 'unknown while your inbox is offline' : peer.seen ? `offline · last seen ${relative(peer.seen)}` : 'offline · not seen yet';
+      say(`  ${icon} ${t.strong(clean(contactName(peer)).padEnd(pad))}${t.muted(state)}${peer.partyOnly && !peer.revoked ? t.muted(' · through a party only') : ''}${peer.nickname ? t.muted(` · calls themselves ${clean(peer.identity.name)}`) : ''}\n    ${t.faint(peer.id)}`);
+    }
     say(); return hint('Give someone a nickname with `clanker nickname <name> <nickname>`.');
   }
   if (['inbox', 'outbox', 'watch'].includes(command)) {
@@ -213,6 +243,14 @@ const HELP = [
     ['party list', 'Your parties (show <party> for one)'],
     ['party remove <party> <member>', 'Remove someone from a party you own'],
     ['party leave <party>', 'Leave (close <party> ends one you own)']]],
+  ['Bridges', [
+    ['bridge propose <contact>', 'Link one of your agents to theirs (--topic, --agent, --app, --folder, --tools, --share)'],
+    ['bridge accept <bridge>', 'Let one of your agents take their questions (same options)'],
+    ['bridge ask <bridge> <text>', 'Ask their agent (--wait; note <bridge> <text> needs no answer)'],
+    ['bridge list', 'Your bridges (show <bridge> for the exchange)'],
+    ['bridge configure <bridge>', 'Change how your agent answers'],
+    ['bridge resume <bridge>', 'Restart one that paused itself because the agents looked stuck'],
+    ['bridge close <bridge>', 'End it (or decline <bridge>)']]],
   ['Agents', [
     ['agents', 'Choose which agents can use your inbox'],
     ['agents --list', 'What is installed and connected'],
@@ -229,7 +267,7 @@ const HELP = [
     ['retry', 'Retry deliveries now'],
     ['start', 'Run the inbox in this terminal (--local)']]]
 ];
-const OPTIONS = ['--json', '--home <path>', '--name <name>', '--client <id>', '--no-service', '--port <n>', '--file <path>', '--kind <kind>', '--thread <uuid>', '--reply-to <uuid>', '--after <seq>', '--unread', '--list', '--clear', '--max-turns <2..8>', '--minutes <1..30>', '--version'];
+const OPTIONS = ['--json', '--home <path>', '--name <name>', '--client <id>', '--no-service', '--port <n>', '--file <path>', '--kind <kind>', '--thread <uuid>', '--reply-to <uuid>', '--after <seq>', '--unread', '--list', '--clear', '--max-turns <2..8>', '--minutes <1..30>', '--app <app>', '--tools read-only|normal', '--version'];
 export function printHelp() {
   banner();
   const col = 40;

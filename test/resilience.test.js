@@ -80,6 +80,6 @@ test('a failed tunnel makes the foreground process exit for a supervisor to rest
   writeFileSync(fake, `#!${process.execPath}\nconsole.log('https://synthetic-tunnel.trycloudflare.com');\nsetTimeout(() => process.exit(1), 500);\n`, { mode: 0o700 });
   const child = spawn(process.execPath, [cli, 'start', '--home', join(root, 'profile'), '--name', 'Synthetic', '--json'], { env: { ...process.env, CLOUDFLARED_BIN: fake }, stdio: ['ignore', 'ignore', 'ignore'] });
   t.after(async () => { await kill(child); rmSync(root, { recursive: true, force: true }); });
-  await until(() => child.exitCode !== null || child.signalCode !== null, 'foreground exit after tunnel failure');
+  await once(child, 'exit', { signal: AbortSignal.timeout(10_000) });
   assert.equal(child.exitCode, 1); assert.equal(child.signalCode, null);
 });

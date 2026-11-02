@@ -8,7 +8,8 @@ const out = process.stdout;
 const write = text => out.write(text);
 const margin = '  ';
 const bar = () => t.faint('│');
-const symbol = state => ({ submit: t.muted('◇'), cancel: t.bad('■'), error: t.warn('▲') })[state] || '◆';
+const symbols = { submit: t.muted('◇'), cancel: t.bad('■'), error: t.warn('▲') };
+const symbol = state => symbols[state] || '◆';
 const title = (state, message) => `${margin}${bar()}\n${margin}${symbol(state)}  ${state === 'submit' || state === 'cancel' ? t.muted(message) : t.strong(message)}\n`;
 const done = (state, value) => `${margin}${bar()}  ${t.muted(state === 'cancel' ? 'Cancelled' : value)}`;
 const foot = (state, error, help) => `${margin}${t.faint('└')}  ${state === 'error' ? t.warn(error) : t.faint(help)}\n`;
@@ -23,10 +24,8 @@ const logLine = (mark, message) => {
 };
 export const log = {
   info: message => logLine(t.muted('●'), message),
-  step: message => logLine(t.muted('◇'), message),
   success: message => logLine(t.good('✓'), message),
-  error: message => logLine(t.bad('×'), message),
-  message: message => logLine(bar(), message)
+  error: message => logLine(t.bad('×'), message)
 };
 
 export function note(body, heading) {

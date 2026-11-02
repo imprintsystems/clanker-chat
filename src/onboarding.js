@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { banner, theme as c, clean, rows, heading, hint, printResult, printInvite, width, wrap } from './terminal.js';
 import { readProfile, saveProfile, launchCommand, startInstalledService } from './setup.js';
 import { discoverClients, applyClientSelection, clientIsConfigured } from './clients.js';
-import { readAccess, clientGrant, enableClient } from './access.js';
+import { readAccess, clientGrant, enableClient, disableClient } from './access.js';
 import { localCall } from './local.js';
 
 export class Cancelled extends Error {}
@@ -57,7 +57,7 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   }
   const results = applyClientSelection(home, selected.filter(id => id !== 'manual'), launch, clients, { run });
   if (selected.includes('manual')) enableClient(home, 'manual', clientGrant(home, 'manual', manual.label));
-  else if (state.clients.manual?.enabled) { const { disableClient } = await import('./access.js'); disableClient(home, 'manual'); }
+  else if (state.clients.manual?.enabled) disableClient(home, 'manual');
   const failures = results.filter(row => row.state === 'error');
   const response = { name, service: service.service, state: service.state, agents: results, manual: selected.includes('manual'), failed: failures.length };
   if (json) { console.log(JSON.stringify(response, null, 2)); return response; }

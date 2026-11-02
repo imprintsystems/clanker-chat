@@ -28,9 +28,9 @@ export class Updates {
   // Asks GitHub for the newest tap version at most once a day. Nothing about
   // the user is sent; a failure retries an hour later.
   async tick() {
-    if (!this.check || this.busy) return;
+    if (!this.check || this.busy || this.now() < this.nextCheck) return;
     const last = this.store.get('latest');
-    if (last && this.now() - last.checkedAt < DAY) return;
+    if (last && this.now() - last.checkedAt < DAY) { this.nextCheck = last.checkedAt + DAY; return; }
     this.busy = true;
     try {
       const response = await this.fetch(FORMULA, { signal: AbortSignal.timeout(10_000) });
