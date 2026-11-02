@@ -29,6 +29,12 @@ Messages are persisted in a SQLite outbox first. Retries generate fresh envelope
 
 SQLite stores identities, peers, invitations, messages, delivery states, read flags and task decisions. The single daemon serializes local mutations. Approval and result enqueueing use durable local records; result creation and completion are transactional. Received messages never run code.
 
+## Parties
+
+A party is a full mesh of pairwise connections; nothing is relayed. The owner sends invitations (identities only, with a fresh invitation token) to contacts paired by code. The invitee joins locally and answers with that token and a card: their Ed25519 signature over their own ID and X25519 key. The owner verifies the card and sends every member a `members` event with a revision number, each member's identity, last known address and card. Recipients reject the whole update if any card fails, so an owner cannot substitute a member's encryption key, and apply only higher revisions.
+
+People introduced this way are stored as party-only contacts. The receiver accepts their messages only with a `party` field naming an active party both belong to, and only as messages or session text; membership events come only from the owner, who is always a contact paired by code. Address announcements to and from party-only contacts stop when no party is shared, checked per contact just before each announcement. Answers to a withdrawn invitation are ignored because the token no longer matches. Leaving, removal and closing cancel undelivered party conversation; membership events stay queued so they still arrive. Blocking a contact commits the party consequences in the same transaction. Party messages and discussion events to one contact are delivered in order per thread; the outbox releases the next one only after the previous one is delivered or cancelled.
+
 ## Exposure
 
 The daemon's public-facing receiver binds to 127.0.0.1 on a random port and has only pairing, message and endpoint-announcement routes. The tunnel forwards that port. Administration runs on a separate Unix socket with mode 0600 inside a mode 0700 profile directory. MCP sessions connect to that socket and never expose their tools publicly.

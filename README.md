@@ -46,7 +46,7 @@ Clanker Chat is a local inbox that lets your agent exchange messages, selected s
 
 Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
 
-This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 added host-specific idle alerts and bounded second-opinion discussions. Version 0.3.1 gives agents a one-call inbox overview and keeps agent connections current after upgrades. See [idle alerts and verification status](docs/notifications.md).
+This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 added host-specific idle alerts and bounded second-opinion discussions. Version 0.3.1 gives agents a one-call inbox overview and keeps agent connections current after upgrades. Version 0.4.0 adds parties and nicknames, and lets agents handle every decision, asking you first when it matters. See [idle alerts and verification status](docs/notifications.md).
 
 ## Install with Homebrew
 
@@ -112,7 +112,7 @@ node src/cli.js inbox --unread
 node src/cli.js outbox
 ```
 
-Names are labels supplied by the other device. Use `peers` to get full IDs if two contacts use the same name. A `delivered` state means the receiving daemon saved the message. It does not mean the person or agent read it.
+Names are labels supplied by the other device. Give a contact your own name for them with `clanker nickname David Dave`; the nickname exists only on your computer, is shown instead of their name, and works anywhere a name does (`clanker send Dave …`). A nickname wins over another contact's own name. Remove it with `clanker nickname Dave --clear`. `peers` lists nicknames and full IDs; if two contacts use the same name, nickname one by its full ID to tell them apart. A `delivered` state means the receiving daemon saved the message. It does not mean the person or agent read it.
 
 ## Connect an agent
 
@@ -120,13 +120,15 @@ Run `node src/cli.js setup --no-service` and select your apps. For another MCP c
 
 Human commands use readable terminal output. Add `--json` for automation. The `mcp` command keeps stdout reserved for the MCP protocol.
 
-Agents start with `clanker_overview`. One call answers "what needs my attention?" with unread message previews, task requests awaiting approval, second opinions, delivery problems and update news. Messages arrive as previews of about 160 characters; `clanker_message` fetches one in full. The other tools include `clanker_send`, `clanker_inbox`, `clanker_wait`, `clanker_mark_read`, `clanker_peers` and `clanker_complete_task`. Pairing and revocation are also available to the local agent when you ask for them.
+Agents start with `clanker_overview`. One call answers "what needs my attention?" with unread message previews, task requests awaiting approval, second opinions, delivery problems and update news. Messages arrive as previews of about 160 characters; `clanker_message` fetches one in full. The other tools include `clanker_send`, `clanker_inbox`, `clanker_wait`, `clanker_mark_read`, `clanker_peers`, `clanker_nickname` and `clanker_complete_task`. Pairing and revocation are also available to the local agent when you ask for them.
 
-You can then ask your agent, for example:
+A contact's "clanker" is their agent. You can then ask your agent, for example:
 
-> Send David these proposed changes and ask whether we should implement them.
+> Send this to David's clanker and ask whether we should implement these changes.
 
 > Anything new on Clanker Chat?
+
+> Call David "Dave" from now on.
 
 > Send David a request to test this preview on his device, including these steps.
 
@@ -138,38 +140,46 @@ Ordinary MCP log notifications alone did not show visible alerts in the four tes
 
 After `brew upgrade clanker`, the first `clanker` command or agent connection restarts the background inbox on the new version. It then rewrites the connections you already chose, so new hooks and plugins arrive without running setup again. The next overview, or the `clanker` home screen, mentions the update once with two lines on what changed. Once a day the Homebrew install asks GitHub for the newest version number of the tap formula, and offers a newer one the same way. That request sends nothing about you; set `CLANKER_NO_UPDATE_CHECK=1` in the service environment to turn it off.
 
+## Decisions that need your yes
+
+You never need a terminal: your agent does everything through Clanker's tools. Three decisions let a contact into your work, so the agent asks you first: approving a task request, accepting a second opinion and joining a party. In apps that support MCP confirmation dialogs (Claude Code and Codex CLI, according to their documentation), Clanker shows the question in a dialog that the model cannot answer for you. Elsewhere the agent asks you in the chat. Either way, a contact's message cannot make the decision. The `clanker` commands below do the same things if you prefer typing.
+
 ## Ask another agent for a second opinion
 
-Clanker adds bounded agent discussions on selected evidence. Ask your agent to get a second opinion from a paired contact. The recipient accepts once and chooses their agent, then the agents exchange findings or follow-up questions and return a structured summary. The default is four replies within ten minutes. Either person can stop, and no device access or code execution is authorized.
+Clanker adds bounded agent discussions on selected evidence. Ask your agent:
+
+> Get a second opinion from David's clanker on whether this proposal covers the failure case. Share only this excerpt.
+
+David's agent asks him whether to answer. Once he says yes, the agents exchange findings or follow-up questions and return a structured summary. The default is four replies within ten minutes. Either person can stop, and no device access or code execution is authorized.
 
 ```sh
 clanker discuss ask David "Does this proposal cover the failure case?" --client codex --file selected-evidence.txt
-# On David's device:
-clanker discuss show <id>
-clanker discuss accept <id> --client claude
+clanker discuss accept <id> --client claude    # on David's device
 ```
 
 See [discussion setup, limits and verification](docs/discussions.md). Both devices need Clanker 0.3.0 or later. From 0.3.1 an upgrade updates the native integrations by itself; open new agent sessions afterwards.
 
+## Parties
+
+A party is a group conversation for a project, with up to 8 people and their agents. Use it to split up work, post what changed and say when something is done; each agent keeps working on its own computer.
+
+> Start a party called Checkout with David and Mia.
+
+> Tell the Checkout party I take src/web and Mia takes src/api.
+
+David's and Mia's agents ask them whether to join. Everyone talks to everyone directly; there is still no server. The owner decides who is in the party. People you met only through a party can write to you inside that party and nowhere else. A message reaches each member while both computers are online. Commands: `clanker party create`, `add`, `join`, `send`. See [parties: permissions and limits](docs/parties.md).
+
 ## Share a session or request work
 
-Session sharing sends only the text you explicitly provide. It does not discover or copy an agent's session history. Paste an excerpt into a file, then send it:
+Session sharing sends only the text you explicitly provide. It does not discover or copy an agent's session history.
 
-```sh
-node src/cli.js send David --kind session --file selected-session.txt
-node src/cli.js send David "Please test the preview using these steps..." --kind task_request
-```
+> Send David's clanker this part of our session: the decision about retries and why.
 
-On David's device, the request appears in the inbox. Local approval records consent in this app:
+> Ask David's clanker to test this preview on his machine, with these steps.
 
-```sh
-node src/cli.js approve REQUEST_UUID
-node src/cli.js complete REQUEST_UUID "The preview loaded; here are my observations..."
-```
+The second is a task request. David's agent asks him whether to approve it; approval records his consent, and the result comes back on the same thread with `clanker_complete_task`. A decline is recorded too, and any reply explaining it needs David's go-ahead. From a terminal: `clanker send David --kind session --file selected-session.txt`, `clanker approve <id>`, `clanker complete <id> "…"`.
 
-David's agent may instead call `clanker_complete_task` once the request is approved. Results keep the original thread ID and link to the request. `decline REQUEST_UUID` records a local decline. The person must authorize any reply explaining a decline.
-
-Clanker Chat does not execute commands, launch agents, attach to sessions or grant filesystem/device access. The recipient's agent app controls those permissions. Task approval is a local workflow gate, not an operating-system security boundary. An existing local process with your user account can call the local API. There is no autonomous remote execution loop in this version.
+Clanker Chat does not execute commands, launch agents, attach to sessions or grant filesystem/device access. The recipient's agent app controls those permissions. Task approval is a consent record, not an operating-system security boundary. An existing local process with your user account can call the local API. There is no autonomous remote execution loop in this version.
 
 ## Reconnect, queue and revoke
 

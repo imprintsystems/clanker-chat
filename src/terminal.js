@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
 import { VERSION } from './version.js';
+import { contactName } from './store.js';
 
 // The website's palette, adapted to a terminal. Body text keeps the terminal's own
 // colour so it reads on dark and light themes; everything we paint carries its own
@@ -96,12 +97,12 @@ const relative = time => {
   const date = new Date(time), clock = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   return date.toDateString() === new Date().toDateString() ? clock : `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${clock}`;
 };
-const KIND = { session: 'session text', task_request: 'task request', task_result: 'task result', discussion: 'second opinion' };
+const KIND = { session: 'session text', task_request: 'task request', task_result: 'task result', discussion: 'second opinion', party: 'party update' };
 const STATE = { delivered: 'delivered', queued: 'waiting to send', failed: 'not delivered', cancelled: 'cancelled' };
 function message(row, names, direction) {
   const mine = direction === 'out', unread = !mine && !row.read;
   const who = clean(names.get(row.peer) || row.peer.slice(0, 8));
-  const meta = [relative(row.payload.createdAt), KIND[row.payload.kind], mine && (STATE[row.state] || clean(row.state))].filter(Boolean).join(' · ');
+  const meta = [relative(row.payload.createdAt), row.partyName && `in ${clean(row.partyName)}`, KIND[row.payload.kind], mine && (STATE[row.state] || clean(row.state))].filter(Boolean).join(' · ');
   const pending = !mine && row.payload.kind === 'task_request' && row.decision === 'pending';
   const status = pending ? `  ${t.warn('needs your approval')}` : !mine && row.payload.kind === 'task_request' ? `  ${t.muted(clean(row.decision))}` : '';
   const text = cleanLines(row.payload.text).flatMap(line => wrap(line, Math.min(64, width() - 12)));
@@ -113,8 +114,8 @@ function message(row, names, direction) {
   say(`${' '.repeat(mine ? Math.max(2, width() - 4 - visible(foot)) : 2)}${foot}\n`);
 }
 
-export function printResult(command, result, { peers = [], to } = {}) {
-  const names = new Map(peers.map(peer => [peer.id, peer.identity.name]));
+export function printResult(command, result, { peers = [] } = {}) {
+  const names = new Map(peers.map(peer => [peer.id, contactName(peer)]));
   if (command === 'discuss') {
     const list = Array.isArray(result) ? result : [result];
     heading('Second opinions', list.length ? String(list.length) : '');
@@ -132,6 +133,20 @@ export function printResult(command, result, { peers = [], to } = {}) {
     }
     return;
   }
+  if (command === 'party') {
+    const list = Array.isArray(result) ? result : [result];
+    heading('Parties', Array.isArray(result) && list.length ? String(list.length) : '');
+    if (!list.length) return hint('No parties yet. Start one with `clanker party create <name>`, then `clanker party add <party> <contact>`.');
+    const STATES = { invited: t.warn('invites you'), joining: 'joining, waiting for the owner', active: t.good('active'), declined: 'declined', left: 'left', removed: 'removed', closed: 'closed' };
+    for (const row of list) {
+      say(`  ${t.strong(clean(row.name))}  ${t.muted(row.role === 'owner' ? 'yours' : `by ${clean(row.owner)}`)} · ${STATES[row.state] || clean(row.state)}\n`);
+      rows([['Party', row.id], ['Members', row.members.map(member => clean(member.name)).join(', ')], ...(row.invited ? [['Invited', row.invited.map(member => clean(member.name)).join(', ')]] : [])]);
+      say();
+      if (row.state === 'invited') hint(`Join with \`clanker party join ${row.id}\` or \`clanker party decline ${row.id}\`. Members see each other's names and can write to you in this party.`);
+    }
+    if (!Array.isArray(result) && result.state === 'active') hint(`Write to everyone with \`clanker party send "${clean(result.name)}" <text>\`.`);
+    return;
+  }
   if (command === 'status') {
     say(`\n  ${t.strong(clean(result.identity?.name || 'Not set up'))}   ${result.online ? `${t.good('●')} online` : `${t.muted('○ offline')}`}\n`);
     rows([['Inbox', result.unread ? t.strong(`${result.unread} unread`) : 'nothing new'], ['Outbox', result.queued ? `${result.queued} waiting to send` : 'all delivered'], ...(result.version ? [['Version', result.version]] : [])]);
@@ -140,9 +155,9 @@ export function printResult(command, result, { peers = [], to } = {}) {
   if (command === 'peers') {
     heading('Contacts', result.length ? String(result.length) : '');
     if (!result.length) return hint('No contacts yet. Create a code with `clanker invite` and send it to a friend.');
-    const pad = Math.max(...result.map(peer => clean(peer.identity.name).length)) + 3;
-    for (const peer of result) say(`  ${peer.revoked ? t.bad('×') : t.good('●')} ${t.strong(clean(peer.identity.name).padEnd(pad))}${t.muted(peer.revoked ? 'blocked' : 'connected')}\n    ${t.faint(peer.id)}`);
-    say(); return;
+    const pad = Math.max(...result.map(peer => clean(contactName(peer)).length)) + 3;
+    for (const peer of result) say(`  ${peer.revoked ? t.bad('×') : t.good('●')} ${t.strong(clean(contactName(peer)).padEnd(pad))}${t.muted(peer.revoked ? 'blocked' : peer.partyOnly ? 'through a party only' : 'connected')}${peer.nickname ? t.muted(` · calls themselves ${clean(peer.identity.name)}`) : ''}\n    ${t.faint(peer.id)}`);
+    say(); return hint('Give someone a nickname with `clanker nickname <name> <nickname>`.');
   }
   if (['inbox', 'outbox', 'watch'].includes(command)) {
     const unread = result.filter(row => !row.read).length;
@@ -153,7 +168,9 @@ export function printResult(command, result, { peers = [], to } = {}) {
     return;
   }
   if (command === 'pair') { success(`Connected to ${t.strong(clean(result.paired.name))}.`); return hint('Ask your agent to check Clanker Chat, or run `clanker inbox`.'); }
-  if (command === 'send' || command === 'complete') { success(`Sent${to ? ` to ${t.strong(clean(to))}` : ''}. It arrives as soon as both computers are online.`); return hint(`${result.id}  ·  check delivery with \`clanker outbox\``); }
+  if (command === 'nickname') return success(result.nickname ? `${t.strong(clean(result.name))} is now ${t.strong(clean(result.nickname))} on this computer.` : `Nickname removed. ${t.strong(clean(result.name))} shows under their own name again.`);
+  if (command === 'send' && result.party) { success(`Sent to ${t.strong(clean(result.name))}: ${result.to.map(clean).join(', ')}. Each gets it when both computers are online.`); return hint('Check delivery with `clanker outbox`.'); }
+  if (command === 'send' || command === 'complete') { success(`Sent${result.to ? ` to ${t.strong(clean(result.to))}` : ''}. It arrives as soon as both computers are online.`); return hint(`${result.id}  ·  check delivery with \`clanker outbox\``); }
   const messages = { read: 'Marked as read.', revoke: 'Contact blocked. Anything queued for them was cancelled.', retry: 'Retrying queued messages now.', approve: 'Task approved on this computer.', decline: 'Task declined.' };
   success(messages[command] || 'Done.');
 }
@@ -188,6 +205,14 @@ const HELP = [
     ['discuss show <id>', 'Transcript and conclusion'],
     ['discuss accept <id>', 'Answer with one of your agents (--client)'],
     ['discuss stop <id>', 'End it (or decline <id>)']]],
+  ['Parties', [
+    ['party create <name>', 'A group conversation you own'],
+    ['party add <party> <contact>', 'Invite a contact (up to 8 people)'],
+    ['party join <party>', 'Accept an invitation (or decline <party>)'],
+    ['party send <party> <text>', 'Write to everyone in it (--file, --kind session)'],
+    ['party list', 'Your parties (show <party> for one)'],
+    ['party remove <party> <member>', 'Remove someone from a party you own'],
+    ['party leave <party>', 'Leave (close <party> ends one you own)']]],
   ['Agents', [
     ['agents', 'Choose which agents can use your inbox'],
     ['agents --list', 'What is installed and connected'],
@@ -198,12 +223,13 @@ const HELP = [
     ['mcp', 'Serve MCP over stdio']]],
   ['Contacts and service', [
     ['peers', 'Your contacts'],
+    ['nickname <name> <nickname>', 'Your own name for a contact (--clear)'],
     ['revoke <name>', 'Block a contact'],
     ['status', 'Connection and counts'],
     ['retry', 'Retry deliveries now'],
     ['start', 'Run the inbox in this terminal (--local)']]]
 ];
-const OPTIONS = ['--json', '--home <path>', '--name <name>', '--client <id>', '--no-service', '--port <n>', '--file <path>', '--kind <kind>', '--thread <uuid>', '--reply-to <uuid>', '--after <seq>', '--unread', '--list', '--max-turns <2..8>', '--minutes <1..30>', '--version'];
+const OPTIONS = ['--json', '--home <path>', '--name <name>', '--client <id>', '--no-service', '--port <n>', '--file <path>', '--kind <kind>', '--thread <uuid>', '--reply-to <uuid>', '--after <seq>', '--unread', '--list', '--clear', '--max-turns <2..8>', '--minutes <1..30>', '--version'];
 export function printHelp() {
   banner();
   const col = 40;

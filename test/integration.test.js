@@ -47,7 +47,8 @@ test('task requests require local approval, results preserve the thread, and rev
   const request = await a.command('send', { to: 'David', text: 'Please test the preview on your device.', kind: 'task_request' });
   await until(() => b.store.list().length === 1);
   await assert.rejects(() => b.command('complete', { id: request.id, text: 'premature result' }), /approval/);
-  await b.command('decide', { id: request.id, decision: 'approved' });
+  await assert.rejects(() => b.command('decide', { id: request.id, decision: 'approved' }, { client: 'codex' }), /needs the user's yes/);
+  await b.command('decide', { id: request.id, decision: 'approved', consent: 'chat' }, { client: 'codex' });
   const result = await b.command('complete', { id: request.id, text: 'Preview loads on this device.' });
   await until(() => a.store.list().length === 1);
   assert.equal(a.store.list()[0].payload.id, result.id);

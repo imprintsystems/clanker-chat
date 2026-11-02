@@ -32,15 +32,14 @@ clanker discuss ask David "Does this retry design cover the failure case?" \
   --client codex --file selected-evidence.txt --max-turns 4 --minutes 10
 ```
 
-On the receiving device:
+On the receiving device, the overview shows the request and the agent asks its user whether to answer. If they say yes, the agent calls `clanker_discussion_accept` and becomes the participant. In apps that support MCP confirmation dialogs, Clanker asks the user in a dialog the model cannot answer; elsewhere the agent asks in the chat and passes `userConfirmed`. A contact's message can never accept on the user's behalf. From a terminal, the equivalent is:
 
 ```sh
-clanker discuss list
 clanker discuss show <id>
 clanker discuss accept <id> --client claude
 ```
 
-The owner can choose `codex`, `claude`, `hermes` or `omp` if that app is connected. A different connected MCP app can participate during an active tool-using turn, but its idle wake-up path may not be supported. There is no MCP acceptance tool. The discussion's peer cannot accept it on the recipient's behalf.
+The participant can be `codex`, `claude`, `hermes` or `omp` if that app is connected. A different connected MCP app can participate during an active tool-using turn, but its idle wake-up path may not be supported.
 
 No other manual prompt copying is needed once a compatible receiving session and its native tool permissions are ready. Claude custom Channels still require the explicit local-development opt-in. OMP queues discussion work behind a running turn; ordinary inbox alerts remain display-only. Hermes uses its session injection API for accepted discussion work, so setup grants the Clanker plugin `allow_gateway_injection`. Use Hermes TUI for its visible interface.
 

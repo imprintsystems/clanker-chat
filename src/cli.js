@@ -19,13 +19,13 @@ async function main() {
     'agent-home': {type:'string'}, 'agent-bin': {type:'string'},
     'max-turns': {type:'string'}, minutes:{type:'string'},
     local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
-    json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }
+    json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }, clear: { type: 'boolean' }
   } });
   let [command, target, ...words] = positionals;
   const home = resolve(values.home || defaultHome());
   const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && !values.json;
   const cli = fileURLToPath(import.meta.url);
-  const peerNames = ['inbox', 'outbox', 'watch', 'discuss'];
+  const peerNames = ['inbox', 'outbox', 'watch', 'discuss', 'party'];
   const output = async (action, value, extra = {}) => values.json ? console.log(JSON.stringify(value, null, 2)) : printResult(action, value, { ...extra, ...(peerNames.includes(action) ? { peers: await localCall(home, 'peers') } : {}) });
   if (values.version) return console.log(`clanker ${VERSION}`);
   if (values.help || command === 'help') return printHelp();
@@ -120,6 +120,20 @@ async function main() {
       else throw new Error('Use clanker discuss ask, list, show, accept, stop or decline.');
       await output('discuss',result);break;
     }
+    case 'party': {
+      const need = (value, usage) => { if (!value) throw new Error(`Use clanker party ${usage}.`); return value; };
+      let result;
+      if (!target || target === 'list') result = await call('parties');
+      else if (target === 'show') result = await call('party_get', { party: need(words[0], 'show <party>') });
+      else if (target === 'create') result = await call('party', { action: 'create', name: need(words.join(' '), 'create <name>') });
+      else if (target === 'add') result = await call('party', { action: 'add', party: need(words[0], 'add <party> <contact>'), contact: need(words.slice(1).join(' '), 'add <party> <contact>') });
+      else if (target === 'remove') result = await call('party', { action: 'remove', party: need(words[0], 'remove <party> <member>'), member: need(words.slice(1).join(' '), 'remove <party> <member>') });
+      else if (['leave', 'close', 'decline'].includes(target)) result = await call('party', { action: target, party: need(words[0], `${target} <party>`) });
+      else if (target === 'join') result = await call('party_join', { party: need(words[0], 'join <party>') });
+      else if (target === 'send') { const party = need(words.shift(), 'send <party> <text>'); result = await call('send', { party, text: content(), kind: values.kind || 'message' }); }
+      else throw new Error('Use clanker party list, show, create, add, join, decline, send, remove, leave or close.');
+      await output(target === 'send' ? 'send' : 'party', result); break;
+    }
     case 'invite': {
       const invite = await call('invite');
       if (values.json) console.log(JSON.stringify(invite));
@@ -137,12 +151,16 @@ async function main() {
       }
       await output('pair', await call('pair', { code: code?.trim() })); break;
     }
-    case 'send': await output('send', await call('send', { to: target, text: content(), kind: values.kind || 'message', ...(values.thread ? { thread: values.thread } : {}), ...(values['reply-to'] ? { replyTo: values['reply-to'] } : {}) }), { to: target }); break;
+    case 'send': await output('send', await call('send', { to: target, text: content(), kind: values.kind || 'message', ...(values.thread ? { thread: values.thread } : {}), ...(values['reply-to'] ? { replyTo: values['reply-to'] } : {}) })); break;
     case 'inbox': case 'outbox': await output(command, await call('inbox', { unread: !!values.unread, after: Number(values.after || 0), direction: command === 'outbox' ? 'out' : 'in' })); break;
     case 'read': await output(command, await call('read', { id: target })); break;
     case 'approve': case 'decline': await output(command, await call('decide', { id: target, decision: command === 'approve' ? 'approved' : 'declined' })); break;
     case 'complete': await output(command, await call('complete', { id: target, text: content() })); break;
     case 'revoke': await output(command, await call('revoke', { peer: target })); break;
+    case 'nickname': {
+      if (!target || (!words.length && !values.clear)) throw new Error('Use clanker nickname <name> <nickname>, or clanker nickname <name> --clear.');
+      await output(command, await call('nickname', { peer: target, nickname: values.clear ? null : words.join(' ') })); break;
+    }
     case 'status': case 'peers': case 'retry': await output(command, await call(command)); break;
     case 'watch': {
       let after = Number(values.after || 0);

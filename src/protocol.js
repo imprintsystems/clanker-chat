@@ -22,11 +22,32 @@ export const discussionEvent = z.discriminatedUnion('type', [
   z.object({ type:z.literal('finish'), turn:z.number().int().min(1).max(8), summary:discussionSummary }).strict(),
   z.object({ type:z.literal('stop'), reason:z.enum(['stopped','declined']) }).strict()
 ]);
+// Parties: the owner manages membership; every member talks to every other
+// member directly. Invites carry identities only; addresses come after joining.
+// Each member's card is their own signature over their encryption key, so an
+// owner introducing them cannot swap in a key of its own.
+export const MAX_PARTY = 8;
+export const partyName = z.string().trim().min(1).max(60);
+const card = z.string().min(1).max(200);
+const partyMember = z.object({ identity: identitySchema, endpoint: z.string().max(256), card }).strict();
+export const partyEvent = z.discriminatedUnion('type', [
+  z.object({ type:z.literal('invite'), name:partyName, invitation:z.string().uuid(), members:z.array(identitySchema).min(1).max(MAX_PARTY - 1) }).strict(),
+  z.object({ type:z.literal('accept'), invitation:z.string().uuid(), card }).strict(),
+  z.object({ type:z.literal('decline'), invitation:z.string().uuid() }).strict(),
+  z.object({ type:z.literal('members'), name:partyName, revision:z.number().int().min(1), members:z.array(partyMember).min(1).max(MAX_PARTY) }).strict(),
+  z.object({ type:z.literal('leave') }).strict(),
+  z.object({ type:z.literal('close') }).strict()
+]);
 export const messageSchema = z.object({
-  id: z.string().uuid(), kind: z.enum(['message', 'session', 'task_request', 'task_result', 'discussion']),
+  id: z.string().uuid(), kind: z.enum(['message', 'session', 'task_request', 'task_result', 'discussion', 'party']),
   text, thread: z.string().uuid(), replyTo: z.string().uuid().optional(),
-  createdAt: z.number().int().positive(), discussion:discussionEvent.optional()
-}).strict().refine(value => (value.kind === 'discussion') === !!value.discussion, 'Discussion metadata requires the discussion message kind');
+  createdAt: z.number().int().positive(), discussion:discussionEvent.optional(),
+  party: z.string().uuid().optional(), partyEvent: partyEvent.optional()
+}).strict()
+  .refine(value => (value.kind === 'discussion') === !!value.discussion, 'Discussion metadata requires the discussion message kind')
+  .refine(value => (value.kind === 'party') === !!value.partyEvent, 'Party events require the party message kind')
+  .refine(value => !value.party || ['party', 'message', 'session'].includes(value.kind), 'Only messages and session text can go to a party')
+  .refine(value => value.kind !== 'party' || !!value.party, 'Party events name their party');
 const envelopeSchema = z.object({
   v: z.literal(1), type: z.enum(['pair', 'receipt', 'message', 'announce']),
   id: z.string().uuid(), sender: z.string().length(64), recipient: z.string().length(64),
@@ -47,6 +68,11 @@ export function validateIdentity(value) {
   const identity = identitySchema.parse(value);
   if (hash(identity.signKey) !== identity.id || pub(identity.signKey).asymmetricKeyType !== 'ed25519' || pub(identity.boxKey).asymmetricKeyType !== 'x25519') throw new Error('Invalid identity');
   return identity;
+}
+const cardData = identity => Buffer.from(`clanker-card-v1:${identity.id}:${identity.boxKey}`);
+export const identityCard = identity => sign(null, cardData(identity.public), identity.signPrivate).toString('base64');
+export function verifyCard(identity, value) {
+  try { return verify(null, cardData(identity), pub(identity.signKey), Buffer.from(value, 'base64')); } catch { return false; }
 }
 export function endpoint(value, allowLoopback = false) {
   const url = new URL(value);

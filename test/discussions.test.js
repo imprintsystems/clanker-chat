@@ -36,11 +36,13 @@ async function fixture(t) {
 test('discussion consent is owner-only; proposals never authorize work and another contact cannot join',async t=>{
   const f=await fixture(t),id=await f.propose();
   assert.deepEqual(f.a.discussions.work('codex'),[]);assert.deepEqual(f.b.discussions.work('claude'),[]);
-  await assert.rejects(f.b.command('discussion_accept',{id,client:'claude'},f.bb),/Only the local user/);
+  await assert.rejects(f.b.command('discussion_accept',{id,client:'claude'},f.bb),/needs the user's yes/);
   const auth={id:'claude',token:f.gb.token,worker:f.bb.worker};
-  await assert.rejects(localCall(f.b.options.home,'discussion_accept',{id,client:'claude'},auth),/Only the local user/);
+  await assert.rejects(localCall(f.b.options.home,'discussion_accept',{id,client:'claude'},auth),/needs the user's yes/);
   assert.equal((await f.a.command('discussion_next',{id},f.aa)).action,'wait_for_local_acceptance');
-  await f.accept(id);
+  // The receiving agent accepts after the user said yes and becomes the participant.
+  await f.b.command('discussion_accept',{id,consent:'chat'},f.bb);await until(()=>f.a.discussions.row(id).state==='active');
+  assert.equal(f.b.discussions.row(id).client,'claude');
   assert.equal(f.b.discussions.work('claude').length,1);
   await assert.rejects(f.b.command('discussion_next',{id},{client:'codex',worker:randomUUID()}),/different local agent/);
   const fake={id:randomUUID(),thread:id,replyTo:f.b.discussions.row(id).lastId,kind:'discussion',text:'Let me join',createdAt:Date.now(),discussion:{type:'reply',turn:1}};
@@ -127,12 +129,13 @@ test('two synthetic agents conduct and finish a second opinion through real MCP 
     await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve('src/cli.js'),'mcp'],env:{...process.env,CLANKER_HOME:host.options.home,CLANKER_CLIENT_ID:id,CLANKER_CLIENT_TOKEN:grant.token,CLANKER_NOTIFICATIONS:'1'},stderr:'pipe'}));
   }
   const invoke=async(client,name,args={})=>{const result=await client.callTool({name,arguments:args});assert.ok(!result.isError,result.content?.[0]?.text);return JSON.parse(result.content[0].text);};
-  const tools=(await clients[1].listTools()).tools;assert.ok(!tools.some(tool=>/discussion_accept/.test(tool.name)));
   const notices=[];clients[1].setNotificationHandler(z.object({method:z.literal('notifications/clanker/discussion'),params:z.object({work:z.array(z.object({id:z.string(),revision:z.number(),kind:z.string()}))})}),notice=>notices.push(notice));
   const proposal=await invoke(clients[0],'clanker_discussion_start',{to:'Synthetic B',question:'Which design needs less new infrastructure?',evidence:'Supplied fact: retries already persist.',maxTurns:2});
   await until(()=>f.b.discussions.list().some(row=>row.id===proposal.id));
   assert.deepEqual(await invoke(clients[1],'clanker_discussion_work'),[]);
-  await localCall(f.b.options.home,'discussion_accept',{id:proposal.id,client:'claude'});
+  const unasked=await clients[1].callTool({name:'clanker_discussion_accept',arguments:{id:proposal.id}});
+  assert.ok(unasked.isError);assert.match(unasked.content[0].text,/Ask the user first: "Synthetic A asks for a second opinion/);
+  await invoke(clients[1],'clanker_discussion_accept',{id:proposal.id,userConfirmed:true});
   await until(()=>notices.some(notice=>notice.params.work.length>0));assert.doesNotMatch(JSON.stringify(notices),/retries already persist/);
   const agent=async client=>{
     for(let i=0;i<12;i++) {

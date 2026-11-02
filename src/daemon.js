@@ -5,17 +5,19 @@ import { chmodSync, existsSync, unlinkSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { z } from 'zod';
-import { Store } from './store.js';
+import { Store, contactName } from './store.js';
 import { endpoint, encodeInvite, decodeInvite, messageSchema, open, openPair, seal, post, text } from './protocol.js';
 import { socketPath, readJSON, json } from './local.js';
 import { authorizeClient } from './access.js';
 import { VERSION } from './version.js';
 import { CodexNotifications } from './notifications.js';
 import { Discussions } from './discussions.js';
-import { overview, fullMessage, summarize, peerNames } from './overview.js';
+import { Parties } from './parties.js';
+import { overview, fullMessage, summarize, peerNames, partyNames } from './overview.js';
 import { Updates } from './updates.js';
 
 const sendSchema = z.object({ to: z.string().min(1), text, kind: z.enum(['message', 'session', 'task_request']).default('message'), thread: z.string().uuid().optional(), replyTo: z.string().uuid().optional() }).strict();
+const partySchema = z.object({ action: z.enum(['create', 'add', 'remove', 'leave', 'close', 'decline']), party: z.string().min(1).max(100).optional(), name: z.string().optional(), contact: z.string().optional(), member: z.string().optional() }).strict();
 const listSchema = z.object({ unread: z.boolean().optional(), after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).optional(), direction: z.enum(['in', 'out']).optional(), preview: z.boolean().optional() }).strict();
 const peerName = z.string().min(1).max(100);
 const messageId = z.string().uuid();
@@ -40,6 +42,7 @@ export class ClankerChat extends EventEmitter {
     try {
       this.store = new Store(home, name);
       this.discussions = new Discussions(home, this.store, this.options.discussions);
+      this.parties = new Parties(this.store, { local, origin: () => this.origin });
       this.notifications = new CodexNotifications(home, this.store, { ...this.options.notifications, discussions:this.discussions });
       this.updates = new Updates(this.store, { check: !!this.options.updateCheck, ...this.options.updates });
       this.upgraded = this.updates.start();
@@ -98,10 +101,14 @@ export class ClankerChat extends EventEmitter {
       if (peer.revoked) throw new Error('Peer revoked');
       if (req.url === '/v1/messages') {
         const message = messageSchema.parse(open(this.store.identity, envelope, peer.identity, 'message'));
-        const inserted = message.kind === 'discussion' ? this.discussions.receive(peer.id,message) : this.store.insert(peer.id, 'in', message);
-        if (inserted) this.emit('message', { peer: peer.identity.name, id: message.id });
+        if (peer.partyOnly && !message.party) throw new Error('Party-only contact');
+        const inserted = message.party ? this.parties.receive(peer.id, message) : message.kind === 'discussion' ? this.discussions.receive(peer.id,message) : this.store.insert(peer.id, 'in', message);
+        if (inserted) this.emit('message', { peer: contactName(peer), id: message.id });
+        // New party members need this inbox's current address now, not at the next 30-second announcement.
+        if (message.kind === 'party') { this.lastAnnounce = 0; this.tick(); }
         return json(res, 200, seal(this.store.identity, peer.identity, 'receipt', { requestId: envelope.id, messageId: message.id }));
       }
+      if (peer.partyOnly && !this.parties.shared(peer.id)) throw new Error('No shared party');
       const data = z.object({ endpoint: z.string().max(256) }).strict().parse(open(this.store.identity, envelope, peer.identity, 'announce'));
       const origin = endpoint(data.endpoint, this.options.local);
       if (envelope.at > peer.announced) this.store.db.prepare('UPDATE peers SET endpoint=?,announced=? WHERE id=?').run(origin, envelope.at, peer.id);
@@ -126,7 +133,7 @@ export class ClankerChat extends EventEmitter {
       case 'discussion_start': { const result=this.discussions.propose(args,actor);this.tick();return result; }
       case 'discussion_get': return this.discussions.get(args.id,actor);
       case 'discussion_list': return this.discussions.list(actor);
-      case 'discussion_accept': { const result=this.discussions.accept(args.id,args.client,actor);this.tick();this.emit('message');return result; }
+      case 'discussion_accept': { const result=this.discussions.accept(args.id,args.client,actor,args.consent);this.tick();this.emit('message');return result; }
       case 'discussion_stop': { const result=this.discussions.stop(args.id,args.reason,actor);this.tick();this.emit('message');return result; }
       case 'discussion_reply': { const result=this.discussions.reply(args,actor);this.tick();this.emit('message');return result; }
       case 'discussion_work': return this.discussions.work(actor?.client || z.string().parse(args.client),actor?.worker);
@@ -146,6 +153,7 @@ export class ClankerChat extends EventEmitter {
       case 'overview': return overview(this.store, this.discussions, { online: this.endpointReady, update: this.updates.notice(args.consume !== false) });
       case 'message': return fullMessage(this.store, messageId.parse(args.id));
       case 'peers': return this.store.peers();
+      case 'nickname': return this.store.nickname(peerName.parse(args.peer), args.nickname == null ? null : z.string().max(40).parse(args.nickname));
       case 'invite': {
         if (!this.endpointReady) throw new Error('Tunnel is not running');
         const invite = this.store.invite();
@@ -167,11 +175,22 @@ export class ClankerChat extends EventEmitter {
         return { paired: invite.identity };
       }
       case 'send': {
-        const input = sendSchema.parse(args); const peer = this.store.peer(input.to);
-        if (peer.revoked) throw new Error('Peer revoked');
+        if (args.party !== undefined) { const { to, ...input } = args; if (to !== undefined) throw new Error('Send to a contact or to a party, not both.'); const result = this.parties.send(input); this.tick(); return result; }
+        const input = sendSchema.parse(args); const peer = this.store.direct(input.to);
         const payload = messageSchema.parse({ id: randomUUID(), kind: input.kind, text: input.text, thread: input.thread || randomUUID(), ...(input.replyTo ? { replyTo: input.replyTo } : {}), createdAt: Date.now() });
         this.store.insert(peer.id, 'out', payload); this.tick();
-        return { id: payload.id, thread: payload.thread, state: 'queued' };
+        return { id: payload.id, thread: payload.thread, state: 'queued', to: contactName(peer) };
+      }
+      case 'parties': return this.parties.list();
+      case 'party_get': return this.parties.get(args.party);
+      case 'party_join': { const result = this.parties.join(args.party, actor, args.consent); this.tick(); return result; }
+      case 'party': {
+        const input = partySchema.parse(args);
+        const result = input.action === 'create' ? this.parties.create({ name: input.name })
+          : input.action === 'add' ? this.parties.add(input)
+          : input.action === 'remove' ? this.parties.remove(input)
+          : this.parties[input.action](input.party);
+        this.tick(); return result;
       }
       case 'inbox': { const { preview, ...query } = listSchema.parse(args); return this.list(query, preview); }
       case 'read': {
@@ -192,9 +211,10 @@ export class ClankerChat extends EventEmitter {
         });
         return this.list({ after }, preview);
       }
-      case 'revoke': return this.store.revoke(peerName.parse(args.peer));
+      case 'revoke': { const result = this.parties.revoke(peerName.parse(args.peer)); this.tick(); return result; }
       case 'decide': {
         const id = messageId.parse(args.id); const decision = z.enum(['approved', 'declined']).parse(args.decision);
+        if (actor && decision === 'approved' && !['dialog', 'chat'].includes(args.consent)) throw new Error('Approving a task request needs the user\'s yes. Ask them first, then use clanker_task_decide.');
         const row = this.store.db.prepare("SELECT * FROM messages WHERE id=? AND direction='in'").get(id);
         if (!row || JSON.parse(row.payload).kind !== 'task_request' || row.decision !== 'pending') throw new Error('Pending task request not found');
         this.store.db.prepare('UPDATE messages SET decision=? WHERE id=?').run(decision, id);
@@ -210,17 +230,17 @@ export class ClankerChat extends EventEmitter {
         this.store.db.exec('BEGIN IMMEDIATE');
         try { this.store.insert(peer.id, 'out', payload); this.store.db.prepare("UPDATE messages SET decision='completed' WHERE id=?").run(id); this.store.db.exec('COMMIT'); }
         catch (error) { this.store.db.exec('ROLLBACK'); throw error; }
-        this.tick(); return { id: payload.id, state: 'queued' };
+        this.tick(); return { id: payload.id, state: 'queued', to: contactName(peer) };
       }
       case 'retry': this.store.db.prepare("UPDATE messages SET retryAt=0 WHERE state='queued'").run(); this.tick(); return { retrying: true };
       default: throw new Error('Unknown command');
     }
   }
   list(query, preview) {
-    const rows = this.store.list(query);
-    if (!preview) return rows;
+    const rows = this.store.list(query), parties = partyNames(this.store);
+    if (!preview) return rows.map(row => row.payload.party ? { ...row, partyName: parties.get(row.payload.party) } : row);
     const names = peerNames(this.store);
-    return rows.map(row => summarize(row, names));
+    return rows.map(row => summarize(row, names, parties));
   }
   tick() {
     if (this.busy || this.stopping || !this.endpointReady) return this.busy;
@@ -233,8 +253,11 @@ export class ClankerChat extends EventEmitter {
     // replacement address after our Quick Tunnel restarts.
     if (!this.lastAnnounce || Date.now() - this.lastAnnounce > 30_000) {
       this.lastAnnounce = Date.now();
-      for (const peer of this.store.peers().filter(p => !p.revoked)) {
+      for (const { id } of this.store.peers()) {
         if (this.stopping) return;
+        // Checked per contact, because a party can end while an earlier announcement is in flight.
+        const peer = this.store.peer(id);
+        if (peer.revoked || (peer.partyOnly && !this.parties.shared(peer.id))) continue;
         try {
           const envelope = seal(this.store.identity, peer.identity, 'announce', { endpoint: this.origin });
           const receipt = open(this.store.identity, await post(peer.endpoint, '/v1/announce', envelope, this.options.local), peer.identity, 'receipt');
@@ -242,20 +265,24 @@ export class ClankerChat extends EventEmitter {
         } catch { /* An offline friend will be retried on the next announcement. */ }
       }
     }
-    for (const row of this.store.queued()) {
-      if (this.stopping) return;
-      try {
-        if (this.store.db.prepare('SELECT state FROM messages WHERE id=?').get(row.id)?.state !== 'queued') continue;
-        // A prior control event must be delivered before a later discussion turn.
-        if (row.payload.kind === 'discussion' && this.store.db.prepare("SELECT 1 FROM messages WHERE peer=? AND direction='out' AND state='queued' AND seq<? AND json_extract(payload,'$.thread')=? LIMIT 1").get(row.peer,row.seq,row.payload.thread)) continue;
-        const peer = this.store.peer(row.peer); if (peer.revoked) continue;
-        const envelope = seal(this.store.identity, peer.identity, 'message', row.payload);
-        const receipt = open(this.store.identity, await post(peer.endpoint, '/v1/messages', envelope, this.options.local), peer.identity, 'receipt');
-        if (receipt.requestId !== envelope.id || receipt.messageId !== row.id) throw new Error('Invalid delivery receipt');
-        this.store.db.prepare("UPDATE messages SET state='delivered',error=NULL WHERE id=? AND state='queued'").run(row.id);
-      } catch (error) {
-        const delay = Math.min(60_000, 2_000 * 2 ** Math.min(row.attempts, 5));
-        this.store.db.prepare("UPDATE messages SET attempts=attempts+1,retryAt=?,error=? WHERE id=?").run(Date.now() + delay, error.message.slice(0, 200), row.id);
+    // Ordered threads release one message per contact per pass, so keep passing
+    // while messages go out.
+    for (let pass = 0, sent = 1; sent && pass < 10; pass++) {
+      sent = 0;
+      for (const row of this.store.queued()) {
+        if (this.stopping) return;
+        try {
+          if (this.store.db.prepare('SELECT state FROM messages WHERE id=?').get(row.id)?.state !== 'queued') continue;
+          const peer = this.store.peer(row.peer); if (peer.revoked) continue;
+          const envelope = seal(this.store.identity, peer.identity, 'message', row.payload);
+          const receipt = open(this.store.identity, await post(peer.endpoint, '/v1/messages', envelope, this.options.local), peer.identity, 'receipt');
+          if (receipt.requestId !== envelope.id || receipt.messageId !== row.id) throw new Error('Invalid delivery receipt');
+          this.store.db.prepare("UPDATE messages SET state='delivered',error=NULL WHERE id=? AND state='queued'").run(row.id);
+          sent++;
+        } catch (error) {
+          const delay = Math.min(60_000, 2_000 * 2 ** Math.min(row.attempts, 5));
+          this.store.db.prepare("UPDATE messages SET attempts=attempts+1,retryAt=?,error=? WHERE id=?").run(Date.now() + delay, error.message.slice(0, 200), row.id);
+        }
       }
     }
   }

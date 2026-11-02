@@ -80,7 +80,7 @@ export class Discussions {
   propose(args, actor) {
     const input = proposalSchema.parse(args);
     const client = this.client(actor?.client || input.client);
-    const peer = this.store.peer(input.to); if (peer.revoked) throw new Error('Peer revoked');
+    const peer = this.store.direct(input.to);
     this.capacity();
     const id = randomUUID(), expiresAt = this.now() + input.minutes * 60_000;
     const payload = messageSchema.parse({ id, thread:id, kind:'discussion', text:input.evidence || 'No additional evidence supplied.', createdAt:this.now(),
@@ -96,9 +96,11 @@ export class Discussions {
     this.store.insert(row.peer, 'out', payload);
     return payload;
   }
-  accept(id, client, actor) {
-    if (actor) throw new Error('Only the local user can accept a discussion with clanker discuss accept.');
-    this.expire(); client = this.client(client);this.capacity();
+  // An agent accepts for the user, becoming the participant, only with the
+  // user's yes from a dialog or the chat.
+  accept(id, client, actor, consent) {
+    if (actor && !['dialog', 'chat'].includes(consent)) throw new Error('Accepting a second opinion needs the user\'s yes. Ask them first, then use clanker_discussion_accept.');
+    this.expire(); client = this.client(actor ? actor.client : client);this.capacity();
     return this.transaction(() => {
       const row = this.row(id); if (row.role !== 'recipient' || row.state !== 'proposed') throw new Error('Pending incoming discussion not found');
       if (this.store.peer(row.peer).revoked) throw new Error('Peer revoked');
