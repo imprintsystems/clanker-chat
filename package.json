@@ -1,6 +1,6 @@
 {
   "name": "clanker-chat",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "A local, paired inbox for agents, with an MCP interface and optional Cloudflare Quick Tunnels.",
   "type": "module",
   "private": true,

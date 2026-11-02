@@ -215,5 +215,13 @@ With Node.js 24.22.2 on macOS arm64, `npm test` passed **109 tests**, with zero 
 - Two inboxes exchanged keys automatically after pairing. One then rotated and deleted the key the other still held. A message and a 70,001-byte file sent to the deleted key were refused at first, then delivered after the sender's next address announcement returned the current key.
 - With an inbox running the published 0.5.1 package, this version paired, exchanged text and files in both directions, and kept encrypting to the 0.5.1 inbox's identity key.
 - `node test/cloudflare-smoke.js --discovery` passed against real Cloudflare Quick Tunnels and the public Pkarr gateways with this change in place.
+- Over real Cloudflare Quick Tunnels, 14 message and file-chunk envelopes were recorded as sent. None opened with the receiving device's identity key alone; all opened with its rotating keys. After both inboxes rotated and deleted those keys, none opened. Messages sent next were delivered after the following address exchange, and a 200,003-byte file arrived intact.
+- Two inboxes with history on the published 0.5.1 package were upgraded one at a time. Identities, encryption keys and history were kept, the new keys were exchanged without any action, and the 9 recorded content envelopes behaved the same way. A restart kept the current key.
+- In a party with two inboxes on this version and one on 0.5.1, all six deliveries arrived; the two upgraded inboxes used rotating keys with each other and the identity key with the 0.5.1 member.
+- With the CLI as separate processes, `start`, `invite`, `pair`, `send` and `inbox` worked; both profiles stored the other's rotating key, `status --json` reported the key's start time, and the key survived a process restart.
 
 Not verified: a contact offline through several rotations on a second physical computer, or clock changes larger than the five-minute allowance. Backups of the profile folder may still hold deleted keys.
+
+## Release 0.5.2, 2 November 2026
+
+0.5.2 ships the rotating encryption keys above. Before release, `npm test` passed **109 tests** with zero failures, cancellations or skips, and the release archive reported 0.5.2 from a temporary folder.

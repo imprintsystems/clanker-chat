@@ -1,6 +1,11 @@
 // Shown once after an upgrade, by the agent's overview call or the clanker home
 // screen. Two short lines a person would actually want to hear.
 export const NOTES = {
+  // Most people upgrade straight from 0.5.0, so this repeats 0.5.1's news.
+  '0.5.2': [
+    'Send files and invite links: ask your agent to send a file to a contact or party, or to make a link you paste to a friend.',
+    'More private: contacts find each other after restarts through records only they can read, and encryption keys now rotate every week.'
+  ],
   '0.5.1': [
     'Send files: ask your agent to send a file to a contact or party, and to save one you received.',
     'Invite links you paste into your agent, and contacts find each other again after both restart, through records only they can read.'
