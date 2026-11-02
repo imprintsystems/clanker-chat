@@ -208,7 +208,7 @@ export class Parties {
       return this.view(this.row(row.id));
     });
   }
-  send(args) {
+  send(args, attachment) {
     const input = sendSchema.parse(args);
     return this.store.transaction(() => {
       const row = this.find(input.party);
@@ -216,7 +216,7 @@ export class Parties {
       const to = row.members.filter(member => member.id !== this.me).map(member => this.contact(member.id)).filter(peer => peer && !peer.revoked);
       if (!to.length) throw new Error(`Nobody else is in ${row.name} yet.`);
       const ids = to.map(member => {
-        const payload = messageSchema.parse({ id: randomUUID(), kind: input.kind, text: input.text, thread: row.id, party: row.id, createdAt: this.now() });
+        const payload = messageSchema.parse({ id: randomUUID(), kind: input.kind, text: input.text, thread: row.id, party: row.id, createdAt: this.now(), ...(attachment ? { attachment } : {}) });
         this.store.insert(member.id, 'out', payload);
         return payload.id;
       });

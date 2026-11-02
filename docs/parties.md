@@ -30,20 +30,23 @@ clanker party create Checkout
 clanker party add Checkout David
 clanker party join Checkout          # on David's computer
 clanker party send Checkout "I take src/web, Mia takes src/api."
+clanker party send Checkout "Please review" --file ./report.pdf
 ```
+
+Agents can attach one authorized file with `clanker_send` using `party` and `file`, with an optional caption in `text`. Each member receives a separate encrypted copy. Saving requires the local user's request and an explicit destination filename through `clanker_save_file`; receipt never opens or executes the file. See [file sharing and limits](../README.md#send-and-save-files). Both sides need attachment-capable code.
 
 ## Who can do what
 
 | | Owner | Member |
 |---|---|---|
-| Write to the party (messages and session text) | yes | yes |
+| Write to the party (messages, file attachments and session text) | yes | yes |
 | Invite paired contacts, remove members | yes | no |
 | Leave | closes the party | yes |
 | Join | | after the person says yes to their agent |
 
 - A party holds at most 8 people, counting open invitations. You can be in 10 parties at once.
 - Task requests and second opinions stay one-to-one, between people who paired with each other.
-- Someone you met only through a party is shown in `clanker peers` as "through a party only". They can write to you inside parties you share, and nowhere else: no direct messages, task requests or second opinions, and your inbox stops sharing its address with them once you no longer share a party. Pair with an invite code if you want a direct connection.
+- Someone you met only through a party is shown in `clanker peers` as "through a party only". They can write to you inside parties you share, and nowhere else: no direct messages, task requests or second opinions. Once you no longer share a party, your inbox stops address announcements to them and replaces its address-recovery key, so they can no longer follow your address. Pair with an invite link if you want a direct connection.
 - Someone met through a party never takes over the name of a contact you paired with. If both are called David, `clanker send David` still goes to the one you paired with.
 - Only the owner can change who is in a party. Membership updates carry a revision number, so an old update arriving late changes nothing. Each member signs their own encryption key when joining, so the owner cannot swap in a key of its own when introducing them to others.
 - When someone leaves or is removed, messages still waiting to reach them are cancelled, and messages they send to the party are refused.

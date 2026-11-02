@@ -6,6 +6,13 @@ import { lookup } from 'node:dns';
 import { isIP } from 'node:net';
 
 export const MAX_BODY = 128 * 1024;
+export const MAX_FILE_SIZE = 512 * 1024 * 1024;
+export const attachmentSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(255).refine(value => value !== '.' && value !== '..' && !/[\\/\u0000-\u001f\u007f]/.test(value) && Buffer.byteLength(value, 'utf8') <= 255, 'Expected a safe filename'),
+  size: z.number().int().min(0).max(MAX_FILE_SIZE),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/)
+}).strict();
 export const text = z.string().min(1).max(48_000).refine(value => Buffer.byteLength(value, 'utf8') <= 48_000, 'Text must fit within 48,000 UTF-8 bytes');
 const key = z.string().min(30).max(200);
 const identitySchema = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().min(1).max(80), signKey: key, boxKey: key }).strict();
@@ -58,7 +65,8 @@ export const messageSchema = z.object({
   text, thread: z.string().uuid(), replyTo: z.string().uuid().optional(),
   createdAt: z.number().int().positive(), discussion:discussionEvent.optional(),
   party: z.string().uuid().optional(), partyEvent: partyEvent.optional(),
-  bridge: z.string().uuid().optional(), bridgeEvent: bridgeEvent.optional()
+  bridge: z.string().uuid().optional(), bridgeEvent: bridgeEvent.optional(),
+  attachment: attachmentSchema.optional()
 }).strict()
   .refine(value => (value.kind === 'discussion') === !!value.discussion, 'Discussion metadata requires the discussion message kind')
   .refine(value => (value.kind === 'party') === !!value.partyEvent, 'Party events require the party message kind')
@@ -66,9 +74,10 @@ export const messageSchema = z.object({
   .refine(value => value.kind !== 'party' || !!value.party, 'Party events name their party')
   .refine(value => value.kind === 'bridge' ? !!value.bridgeEvent && value.thread === value.bridge : !value.bridge && !value.bridgeEvent, 'Bridge events name their bridge as the thread')
   .refine(value => value.kind !== 'bridge' || value.text.length <= BRIDGE_TEXT, 'Bridge text must fit within 8,000 characters')
-  .refine(value => value.bridgeEvent?.type !== 'answer' || !!value.replyTo, 'An answer names its question');
+  .refine(value => value.bridgeEvent?.type !== 'answer' || !!value.replyTo, 'An answer names its question')
+  .refine(value => !value.attachment || value.kind === 'message', 'Only ordinary messages can carry files');
 const envelopeSchema = z.object({
-  v: z.literal(1), type: z.enum(['pair', 'receipt', 'message', 'announce']),
+  v: z.literal(1), type: z.enum(['pair', 'receipt', 'message', 'announce', 'attachment']),
   id: z.string().uuid(), sender: z.string().length(64), recipient: z.string().length(64),
   at: z.number().int(), ephemeral: key,
   iv: z.string().max(32), tag: z.string().max(32), body: z.string().max(110_000), signature: z.string().max(128)
@@ -144,12 +153,29 @@ export function openPair(identity, value) {
   return { data, sender };
 }
 export function encodeInvite(value) { return `cc1:${Buffer.from(JSON.stringify(value)).toString('base64url')}`; }
-export function decodeInvite(code, allowLoopback = false) {
-  if (typeof code !== 'string' || !code.startsWith('cc1:') || code.length > 4096) throw new Error('Invalid connection code');
-  const value = z.object({ v: z.literal(1), identity: identitySchema, endpoint: z.string().max(256), token: z.string().regex(/^[a-f0-9]{64}$/), expires: z.number().int() }).strict().parse(JSON.parse(Buffer.from(code.slice(4), 'base64url').toString()));
+const INVITE_LINK = 'https://clanker.imprintsystems.ai/connect/';
+export function inviteLink(code) { return `${INVITE_LINK}#${inviteCode(code)}`; }
+function inviteCode(input) {
+  if (typeof input !== 'string' || input.length > 4600) throw new Error('Invalid connection link or code');
+  let code = input.trim();
+  if (!code.startsWith('cc1:')) {
+    const url = new URL(code);
+    // Check the spelling too: URL normalizes credentials, ports and dot paths.
+    if (!/^https:\/\/clanker\.imprintsystems\.ai\/connect\/?#cc1:[A-Za-z0-9_-]+$/.test(code) || url.origin !== 'https://clanker.imprintsystems.ai' || !['/connect', '/connect/'].includes(url.pathname) || url.username || url.password || url.port || url.search) throw new Error('Invalid connection link');
+    code = url.hash.slice(1);
+  }
+  if (code.length > 4096 || !/^cc1:[A-Za-z0-9_-]+$/.test(code)) throw new Error('Invalid connection code');
+  return code;
+}
+export function decodeInvite(input, allowLoopback = false) {
+  const code = inviteCode(input), payload = code.slice(4);
+  const bytes = Buffer.from(payload, 'base64url');
+  if (bytes.toString('base64url') !== payload) throw new Error('Invalid connection code encoding');
+  const value = z.object({ v: z.literal(1), identity: identitySchema, endpoint: z.string().max(256), token: z.string().regex(/^[a-f0-9]{64}$/), expires: z.number().int() }).strict().parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)));
+  if (!value.identity.name.isWellFormed()) throw new Error('Invalid connection identity name');
   validateIdentity(value.identity);
   value.endpoint = endpoint(value.endpoint, allowLoopback);
-  if (value.expires < Date.now()) throw new Error('Connection code expired');
+  if (value.expires <= Date.now()) throw new Error('Connection code expired');
   return value;
 }
 export async function post(origin, route, payload, allowLoopback = false) {

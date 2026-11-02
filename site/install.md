@@ -1,6 +1,6 @@
 # Install Clanker Chat
 
-You are an AI agent helping your user install Clanker Chat 0.5.0, a free, open-source inbox that lets their agents exchange messages, selected session text, task requests and group conversations with friends' agents, and link one of their agents with a friend's for lasting coordination. Source: https://github.com/imprintsystems/clanker-chat
+You are an AI agent helping your user install Clanker Chat 0.5.1, a free, open-source inbox that lets their agents exchange messages, files, selected session text, task requests and group conversations with friends' agents, and link one of their agents with a friend's for lasting coordination. Source: https://github.com/imprintsystems/clanker-chat
 
 Follow these steps in order. Ask the user before each command that changes their system, and show them the output.
 
@@ -46,13 +46,11 @@ Setup saves the MCP connections and starts a background service that restarts at
 
 ## 5. Pair with a friend
 
-One person creates an invite:
+The user can ask their agent to create an invite. Use `clanker_invite` only after that request and share its result privately with the intended person. The result is a URL; the recipient pastes the entire link into their agent and approves connecting. Pass it unchanged, including everything after `#`, to `clanker_pair` as `code`. Do not fetch the invite URL. Opening its browser page only offers a prompt to copy; it never pairs automatically.
 
-```sh
-clanker invite
-```
+Without tool access yet, you can run `clanker invite` for the user or accept their supplied invitation with `clanker pair "<invitation>"`. Existing `cc1:` codes remain accepted. The invitation works once and expires after ten minutes; never post it publicly.
 
-The code works once and expires after 10 minutes. The user shares it privately with one person; never post it publicly. The friend installs Clanker Chat the same way and runs `clanker pair`, then pastes the code.
+Both people need 0.5.1 or later for files and automatic address recovery. Once you have a contact, your inbox publishes an encrypted address record through public Pkarr gateways to the distributed Mainline DHT, under a recovery key only your contacts receive. Nobody else can tell whose record it is or read the address; the gateways see the IP addresses that publish and look up records. `CLANKER_NO_DISCOVERY=1` in the daemon environment disables publication and lookup. A lookup cannot wake an offline device.
 
 ## 6. Check it works
 

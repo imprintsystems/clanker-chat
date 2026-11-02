@@ -79,17 +79,17 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   if (failures.length) { p.outro(`Some apps need attention. Run ${cmd('clanker agents')} to try again.`); return response; }
   if (agentsOnly || noService) { p.outro('Connections saved.'); return response; }
   const next = unwrap(await p.select({ message: 'Connect with a friend now?', options: [
-    { value: 'invite', label: 'Create an invite', hint: 'A single-use code to send them' },
-    { value: 'pair', label: 'Use an invite', hint: 'Paste the code they sent you' },
+    { value: 'invite', label: 'Create an invite', hint: 'A single-use link to send them' },
+    { value: 'pair', label: 'Use an invite', hint: 'Paste the link they sent you' },
     { value: 'later', label: 'Later' }
   ] }), p);
   if (next === 'invite') {
     const invite = await localCall(home, 'invite');
     p.log.success('Invite ready. Single use, valid for 10 minutes. Send it privately.');
-    console.log(`\n${invite.code}\n`);
-    p.log.info(`Your friend installs Clanker Chat, then runs ${cmd('clanker pair')} and pastes it.`);
+    console.log(`\n${invite.link}\n`);
+    p.log.info('Your friend can paste this link into their agent, or open it to copy an agent prompt.');
   } else if (next === 'pair') {
-    const code = unwrap(await p.text({ message: 'Paste your invite code', validate: value => !value?.trim().startsWith('cc1:') ? 'Invite codes start with cc1:.' : undefined }), p);
+    const code = unwrap(await p.text({ message: 'Paste your invite link', validate: value => !value?.trim() ? 'Paste an invite link or cc1: code.' : value.length > 4600 ? 'This invite is too long. Ask for a fresh link.' : undefined }), p);
     const spin = p.spinner(); spin.start('Connecting…');
     try { const result = await localCall(home, 'pair', { code: code.trim() }); spin.stop(`Connected to ${clean(result.paired.name)}.`); }
     catch (error) { spin.stop('Could not connect.'); throw error; }
@@ -131,14 +131,14 @@ export async function showHome(home) {
     if (codex && !codexAlertsInstalled(codex)) hint('Codex alerts are not set up yet. Choose agents below and keep Codex selected.');
   }
   const action = unwrap(await prompts.select({ message: 'What would you like to do?', options: [
-    { value: 'inbox', label: 'Read messages', hint: status.unread ? `${status.unread} unread` : undefined }, { value: 'discussions', label: 'Second opinions', hint: 'Agent discussions and results' }, { value: 'invite', label: 'Invite a friend' }, { value: 'pair', label: 'Use an invite code' },
+    { value: 'inbox', label: 'Read messages', hint: status.unread ? `${status.unread} unread` : undefined }, { value: 'discussions', label: 'Second opinions', hint: 'Agent discussions and results' }, { value: 'invite', label: 'Invite a friend' }, { value: 'pair', label: 'Use an invite link' },
     { value: 'agents', label: 'Choose agents' }, { value: 'peers', label: 'Contacts' }, { value: 'exit', label: 'Close' }
   ] }), prompts);
   if (action === 'exit') return;
   if (action === 'agents') return 'agents';
   const peers = () => localCall(home, 'peers');
   if (action === 'discussions') return printResult('discuss', await localCall(home, 'discussion_list'), { peers: await peers() });
-  if (action === 'invite') return printInvite((await localCall(home, 'invite')).code);
-  if (action === 'pair') { const code = unwrap(await prompts.text({ message: 'Paste your invite code' }), prompts); return printResult('pair', await localCall(home, 'pair', { code: code.trim() })); }
+  if (action === 'invite') return printInvite((await localCall(home, 'invite')).link);
+  if (action === 'pair') { const code = unwrap(await prompts.text({ message: 'Paste your invite link' }), prompts); return printResult('pair', await localCall(home, 'pair', { code: code.trim() })); }
   printResult(action, await localCall(home, action), action === 'inbox' ? { peers: await peers() } : {});
 }

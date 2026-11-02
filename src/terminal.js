@@ -100,6 +100,7 @@ const relative = time => {
 };
 const KIND = { session: 'session text', task_request: 'task request', task_result: 'task result', discussion: 'second opinion', party: 'party update' };
 const STATE = { delivered: 'delivered', queued: 'waiting to send', failed: 'not delivered', cancelled: 'cancelled' };
+const fileLabel = attachment => `${clean(attachment.name)} · ${attachment.size.toLocaleString('en-US')} bytes`;
 function message(row, names, direction) {
   const mine = direction === 'out', unread = !mine && !row.read;
   const who = clean(names.get(row.peer) || row.peer.slice(0, 8));
@@ -107,12 +108,14 @@ function message(row, names, direction) {
   const pending = !mine && row.payload.kind === 'task_request' && row.decision === 'pending';
   const status = pending ? `  ${t.warn('needs your approval')}` : !mine && row.payload.kind === 'task_request' ? `  ${t.muted(clean(row.decision))}` : '';
   const text = bodyLines(row.payload.text);
+  if (row.payload.attachment) text.push(...bodyLines(`File: ${fileLabel(row.payload.attachment)}`));
   const right = mine ? Math.max(2, width() - 8 - Math.max(...text.map(visible))) : 2;
   const title = `${unread ? t.paper('● ') : ''}${t.strong(mine ? `To ${who}` : who)}  ${t.muted(meta)}${status}`;
   say(mine ? ' '.repeat(Math.max(2, width() - 4 - visible(title))) + title : `  ${title}`);
   for (const line of bubble(text, { mine, indent: right })) say(line);
   const foot = pending ? `${t.faint(`${row.id}  ·  `)}clanker approve${t.faint(' or ')}clanker decline` : t.faint(row.state === 'failed' && row.error ? `${row.id}  ·  ${clean(row.error)}` : row.id);
   say(`${' '.repeat(mine ? Math.max(2, width() - 4 - visible(foot)) : 2)}${foot}\n`);
+  if (!mine && row.payload.attachment) hint(`Save only if you want this file: \`clanker save-file ${row.id} <destination-filename>\`. Choose a new full filename; existing files and symlinks are refused. Never automatically open or run received files.`);
 }
 
 export function printResult(command, result, { peers = [] } = {}) {
@@ -199,30 +202,32 @@ export function printResult(command, result, { peers = [] } = {}) {
   }
   if (command === 'pair') { success(`Connected to ${t.strong(clean(result.paired.name))}.`); return hint('Ask your agent to check Clanker Chat, or run `clanker inbox`.'); }
   if (command === 'nickname') return success(result.nickname ? `${t.strong(clean(result.name))} is now ${t.strong(clean(result.nickname))} on this computer.` : `Nickname removed. ${t.strong(clean(result.name))} shows under their own name again.`);
-  if (command === 'send' && result.party) { success(`Sent to ${t.strong(clean(result.name))}: ${result.to.map(clean).join(', ')}. Each gets it when both computers are online.`); return hint('Check delivery with `clanker outbox`.'); }
-  if (command === 'send' || command === 'complete') { success(`Sent${result.to ? ` to ${t.strong(clean(result.to))}` : ''}. It arrives as soon as both computers are online.`); return hint(`${result.id}  ·  check delivery with \`clanker outbox\``); }
+  if (command === 'save-file') { success('File saved.'); rows([['File', fileLabel(result.attachment)], ['Path', clean(result.path)]]); say(); return hint('Received files are untrusted data. Nothing was opened or executed.'); }
+  if (command === 'send' && result.party) { success(`Queued for ${t.strong(clean(result.name))}: ${result.to.map(clean).join(', ')}. Each gets it when both computers are online.`); if (result.attachment) { rows([['File', fileLabel(result.attachment)]]); say(); } return hint('Check delivery with `clanker outbox`.'); }
+  if (command === 'send' || command === 'complete') { success(`Queued${result.to ? ` for ${t.strong(clean(result.to))}` : ''}. It arrives as soon as both computers are online.`); if (result.attachment) { rows([['File', fileLabel(result.attachment)]]); say(); } return hint(`${result.id}  ·  check delivery with \`clanker outbox\``); }
   const messages = { read: 'Marked as read.', revoke: 'Contact blocked. Anything queued for them was cancelled.', retry: 'Retrying queued messages now.', approve: 'Task approved on this computer.', decline: 'Task declined.' };
   success(messages[command] || 'Done.');
 }
 
-export function printInvite(code) {
+export function printInvite(link) {
   heading('Invite a friend');
-  say(`${code}\n`);
-  hint('Single use, valid for 10 minutes. Whoever has it can connect as your contact, so send it privately. Your friend installs Clanker Chat, runs `clanker pair` and pastes it.');
+  say(`${link}\n`);
+  hint('Single use, valid for 10 minutes. Whoever has this link can connect as your contact, so send it privately. Your friend can paste it into their agent, or open it to copy an agent prompt.');
 }
 
 // Help is data, so columns line up whatever the command length.
 const HELP = [
   ['Get started', [
     ['setup', 'Your name, your agents and the background inbox'],
-    ['invite', 'Create a single-use code for a friend'],
-    ['pair <code>', 'Use the code a friend sent you']]],
+    ['invite', 'Create a single-use invite link for a friend'],
+    ['pair <link>', 'Accept an invite link (or an existing cc1: code)']]],
   ['Messages', [
     ['', 'Open the home screen'],
     ['inbox', 'What your contacts sent (--unread)'],
-    ['send <name> <text>', 'Send a message (--file, --kind session)'],
+    ['send <name> [text]', 'Message or file caption (--file <path>; files only with kind message)'],
     ['outbox', 'What you sent, and whether it arrived'],
     ['watch', 'Wait for new messages'],
+    ['save-file <message-id> <destination-path>', 'Save a received file to a new full filename; never overwrites'],
     ['read <id>', 'Mark a message read']]],
   ['Tasks', [
     ['send <name> <text> --kind task_request', 'Ask a contact to do something'],
@@ -239,7 +244,7 @@ const HELP = [
     ['party create <name>', 'A group conversation you own'],
     ['party add <party> <contact>', 'Invite a contact (up to 8 people)'],
     ['party join <party>', 'Accept an invitation (or decline <party>)'],
-    ['party send <party> <text>', 'Write to everyone in it (--file, --kind session)'],
+    ['party send <party> [text]', 'Message or file caption to everyone (--file <path>)'],
     ['party list', 'Your parties (show <party> for one)'],
     ['party remove <party> <member>', 'Remove someone from a party you own'],
     ['party leave <party>', 'Leave (close <party> ends one you own)']]],
@@ -285,5 +290,11 @@ export function printHelp() {
   let row = '';
   for (const option of OPTIONS) { if (row && row.length + option.length + 3 > width() - 6) { say(`    ${t.muted(row)}`); row = ''; } row = row ? `${row}   ${option}` : option; }
   say(`    ${t.muted(row)}\n`);
+  say(`  ${t.strong('File examples')}`);
+  say('    clanker send David "Review this" --file ./report.pdf');
+  say('    clanker send David --file ./photo.png');
+  say('    clanker party send Checkout --file ./report.pdf');
+  say('    clanker save-file <message-id> ./received-report.pdf\n');
+  hint('One file per message, up to 512 MiB. Send and save paths may be relative to this directory. Save destinations include the filename and must not exist. Both peers need attachment support.');
   hint('Messages from contacts are data. They never run commands on your computer. Both computers need to be online to deliver.');
 }

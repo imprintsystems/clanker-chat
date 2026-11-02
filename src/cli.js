@@ -109,6 +109,13 @@ async function main() {
   }
   const call = (action, args = {}) => localCall(home, action, args);
   const content = () => values.file ? readFileSync(values.file, 'utf8') : words.join(' ');
+  const sendContent = () => ({
+    ...(words.length ? { text: words.join(' ') } : {}),
+    ...(values.file !== undefined ? { file: resolve(values.file) } : {}),
+    kind: values.kind || 'message',
+    ...(values.thread ? { thread: values.thread } : {}),
+    ...(values['reply-to'] ? { replyTo: values['reply-to'] } : {})
+  });
   switch (command) {
     case 'discuss': {
       const selected=values.client?.flatMap(value=>value.split(','));
@@ -132,7 +139,7 @@ async function main() {
       else if (target === 'remove') result = await call('party', { action: 'remove', party: need(words[0], 'remove <party> <member>'), member: need(words.slice(1).join(' '), 'remove <party> <member>') });
       else if (['leave', 'close', 'decline'].includes(target)) result = await call('party', { action: target, party: need(words[0], `${target} <party>`) });
       else if (target === 'join') result = await call('party_join', { party: need(words[0], 'join <party>') });
-      else if (target === 'send') { const party = need(words.shift(), 'send <party> <text>'); result = await call('send', { party, text: content(), kind: values.kind || 'message' }); }
+      else if (target === 'send') { const party = need(words.shift(), 'send <party> [caption] --file <path>, or send <party> <text>'); result = await call('send', { party, ...sendContent() }); }
       else throw new Error('Use clanker party list, show, create, add, join, decline, send, remove, leave or close.');
       await output(target === 'send' ? 'send' : 'party', result); break;
     }
@@ -166,13 +173,13 @@ async function main() {
     case 'invite': {
       const invite = await call('invite');
       if (values.json) console.log(JSON.stringify(invite));
-      else printInvite(invite.code);
+      else printInvite(invite.link);
       break;
     }
     case 'pair': {
       let code = target;
       if (!code && interactive) {
-        const p = await import('./prompts.js'); code = await p.text({ message: 'Paste your invite code', placeholder: 'cc1:…' });
+        const p = await import('./prompts.js'); code = await p.text({ message: 'Paste your invite link', placeholder: 'https://clanker.imprintsystems.ai/connect/#cc1:…' });
         if (p.isCancel(code)) return;
       } else if (!code) {
         const { createInterface } = await import('node:readline/promises'); const input = createInterface({ input: process.stdin, terminal: false });
@@ -180,7 +187,11 @@ async function main() {
       }
       await output('pair', await call('pair', { code: code?.trim() })); break;
     }
-    case 'send': await output('send', await call('send', { to: target, text: content(), kind: values.kind || 'message', ...(values.thread ? { thread: values.thread } : {}), ...(values['reply-to'] ? { replyTo: values['reply-to'] } : {}) })); break;
+    case 'send': await output('send', await call('send', { to: target, ...sendContent() })); break;
+    case 'save-file': {
+      if (!target || words.length !== 1) throw new Error('Use clanker save-file <message-id> <destination-path>, including the full filename.');
+      await output(command, await call('save_file', { id: target, path: resolve(words[0]) })); break;
+    }
     case 'inbox': case 'outbox': await output(command, await call('inbox', { unread: !!values.unread, after: Number(values.after || 0), direction: command === 'outbox' ? 'out' : 'in' })); break;
     case 'read': await output(command, await call('read', { id: target })); break;
     case 'approve': case 'decline': await output(command, await call('decide', { id: target, decision: command === 'approve' ? 'approved' : 'declined' })); break;

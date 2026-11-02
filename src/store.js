@@ -28,6 +28,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS parties (id TEXT PRIMARY KEY, name TEXT NOT NULL, owner TEXT NOT NULL, state TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, members TEXT NOT NULL DEFAULT '[]', invited TEXT NOT NULL DEFAULT '[]', cards TEXT NOT NULL DEFAULT '{}', invitation TEXT, created INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS bridges (id TEXT PRIMARY KEY, peer TEXT NOT NULL, role TEXT NOT NULL, state TEXT NOT NULL, topic TEXT NOT NULL, localAgent TEXT, remoteAgent TEXT, runner TEXT, share TEXT, created INTEGER NOT NULL, digestAt INTEGER NOT NULL DEFAULT 0, pause TEXT, resumed INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS bridge_runs (ask TEXT PRIMARY KEY, bridge TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retryAt INTEGER NOT NULL DEFAULT 0, error TEXT, created INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS peer_discovery (peer TEXT PRIMARY KEY, credentials TEXT NOT NULL);
     `);
     for (const suffix of ['-wal', '-shm']) if (existsSync(file + suffix)) chmodSync(file + suffix, 0o600);
     const columns = this.prepare('PRAGMA table_info(peers)').all().map(column => column.name);
@@ -76,7 +77,7 @@ export class Store {
   direct(id) {
     const peer = this.peer(id);
     if (peer.revoked) throw new Error('Peer revoked');
-    if (peer.partyOnly) throw new Error(`${contactName(peer)} is connected only through a party. Write to them in the party, or pair with an invite code first.`);
+    if (peer.partyOnly) throw new Error(`${contactName(peer)} is connected only through a party. Write to them in the party, or pair with an invite link first.`);
     return peer;
   }
   named(name) {
@@ -99,6 +100,11 @@ export class Store {
   }
   peers() { return this.prepare('SELECT * FROM peers').all().map(p => ({ ...p, identity: JSON.parse(p.identity) })); }
   saw(id) { this.prepare('UPDATE peers SET seen=? WHERE id=?').run(Date.now(), id); }
+  // A contact's private address-recovery key and secret. Kept apart from peers
+  // so contact listings never carry the secret.
+  discovery(id) { const row = this.prepare('SELECT credentials FROM peer_discovery WHERE peer=?').get(id); return row ? JSON.parse(row.credentials) : undefined; }
+  saveDiscovery(id, credentials) { this.prepare('INSERT INTO peer_discovery VALUES (?,?) ON CONFLICT(peer) DO UPDATE SET credentials=excluded.credentials').run(id, JSON.stringify(credentials)); }
+  invitePending() { return !!this.prepare('SELECT 1 FROM invites WHERE used=0 AND expires>=?').get(Date.now()); }
   savePeer(identity, endpoint) {
     const previous = this.prepare('SELECT * FROM peers WHERE id=?').get(identity.id);
     if (previous?.revoked) throw new Error('Peer revoked; remove the revocation locally before pairing again');
@@ -156,6 +162,7 @@ export class Store {
   revoke(id) {
     const peer = this.peer(id);
     this.prepare('UPDATE peers SET revoked=1 WHERE id=?').run(peer.id);
+    this.prepare('DELETE FROM peer_discovery WHERE peer=?').run(peer.id);
     this.prepare("UPDATE messages SET state='cancelled',error='Peer revoked' WHERE peer=? AND state='queued'").run(peer.id);
     return { revoked: peer.id };
   }

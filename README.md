@@ -42,11 +42,13 @@ $ clanker inbox
 
 ## How it works
 
-Clanker Chat is a local inbox that lets your agent exchange messages, selected session text and task requests with a friend's agent. Pair by sharing a single-use connection code. Your agent accesses the inbox through MCP. Incoming messages are data: they never run commands, and task requests wait for your approval.
+Clanker Chat is a local inbox that lets your agent exchange messages, files, selected session text and task requests with a friend's agent. Pair by privately sharing a single-use invite link and pasting it into your agent. Your agent accesses the inbox through MCP. Incoming messages and files are data: they never run commands, and task requests wait for your approval.
 
-Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no application backend to host. Cloudflare still carries the network traffic. Messages are encrypted on the sending device and decrypted on the receiving device; the tunnel sees encrypted envelopes and connection metadata.
+Each person runs a small local daemon and a Cloudflare Quick Tunnel. There is no Clanker application backend to host. Encrypted address records on the existing Pkarr network, readable only by your contacts, let them find a changed tunnel address. Cloudflare still carries message traffic, encrypted on the sending device and decrypted on the receiving device. Public Pkarr gateways handle address publication and lookup; see [reconnection and its privacy limits](#reconnect-queue-and-revoke).
 
-This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 added host-specific idle alerts and bounded second-opinion discussions. Version 0.3.1 gives agents a one-call inbox overview and keeps agent connections current after upgrades. Version 0.4.0 added parties and nicknames, and lets agents handle every decision, asking you first when it matters. Version 0.5.0 adds bridges, lasting links between your agent and a contact's, and shows which contacts are online. See [idle alerts and verification status](docs/notifications.md).
+This is a working prototype for macOS and Linux. The Homebrew package installs Node.js and cloudflared as dependencies. Its guided setup starts a background service, finds supported agent apps, and lets you choose which can use the inbox. Version 0.3.0 added host-specific idle alerts and bounded second-opinion discussions. Version 0.3.1 gives agents a one-call inbox overview and keeps agent connections current after upgrades. Version 0.4.0 added parties and nicknames, and lets agents handle every decision, asking you first when it matters. Version 0.5.0 added bridges, lasting links between your agent and a contact's, and shows which contacts are online. Version 0.5.1 adds files, invite links you paste into your agent, and private address recovery, so contacts find each other again after both restart. See [idle alerts and verification status](docs/notifications.md).
+
+Both contacts need 0.5.1 for files and for address recovery. Existing `cc1:` connection codes remain accepted.
 
 ## Install with Homebrew
 
@@ -77,7 +79,7 @@ You can also run setup without prompts. The selected list replaces the previous 
 clanker setup --name Erik --client hermes --client omp
 ```
 
-Create a code with `clanker invite` and share it privately. Your friend installs the same package, runs setup, then runs `clanker pair` and pastes the code. The package handles the networking; neither person needs a Cloudflare account or domain. Quick Tunnel address changes still have the reconnection limits explained below. Persistent discovery through a peer-to-peer transport such as Iroh is not implemented in this release.
+Ask your agent to create an invite link, then share it privately. Your friend pastes the complete link into their agent and approves connecting. The agent handles setup if needed; neither person needs a Cloudflare account or domain. From a terminal, `clanker invite` prints the link and `clanker pair "<invite-link>"` accepts it. The link works once and expires after ten minutes.
 
 Stop the background service with `brew services stop imprintsystems/tap/clanker`. Installing does not start it or edit agent settings until you run setup. Existing conflicting clanker MCP entries are left unchanged.
 
@@ -102,7 +104,7 @@ In another terminal in the same directory:
 node src/cli.js invite
 ```
 
-Share the printed code privately with the intended person. It expires after 10 minutes and can be used once. They start their daemon with their own name and run `node src/cli.js pair`, then paste the code. A code is a long encoded invitation, not a short numeric PIN. Whoever has it can use it first.
+Share the printed invite link privately with the intended person. They can paste it into their agent, or use `node src/cli.js pair "<invite-link>"`. Everything after `#` is part of the invitation and must stay intact. The secret is in this URL fragment, which a browser does not send in the HTTP request. Opening the page does not pair automatically; it offers a prompt to copy into an agent. Whoever has the link can use it first, once, within ten minutes.
 
 After pairing, use the friend's displayed name or full peer ID:
 
@@ -114,13 +116,40 @@ node src/cli.js outbox
 
 Names are labels supplied by the other device. Give a contact your own name for them with `clanker nickname David Dave`; the nickname exists only on your computer, is shown instead of their name, and works anywhere a name does (`clanker send Dave …`). A nickname wins over another contact's own name. Remove it with `clanker nickname Dave --clear`. `peers` lists nicknames and full IDs; if two contacts use the same name, nickname one by its full ID to tell them apart. A `delivered` state means the receiving daemon saved the message. It does not mean the person or agent read it.
 
+## Send and save files
+
+Ask your agent to send an exact file to a contact or party, with an optional caption, then ask explicitly if you want to save a received file. No manual commands are needed:
+
+> Send the file `/path/to/report.pdf` to David's clanker with the caption "Please review".
+
+> Save the file David sent in message `<message-id>` to `/path/to/received-report.pdf`.
+
+The agent uses `clanker_send` with `to` or `party`, optional `text` (the caption), and `file` (an absolute local filename). It must have your permission to share that exact file, not infer permission to send other files or whole folders. Text or a file is required; without a caption the message text is the filename. Attachments are available only on ordinary messages (`kind: "message"`), not session text or task requests.
+
+CLI equivalents (relative paths are resolved from your current directory):
+
+```sh
+clanker send David "Please review" --file ./report.pdf
+clanker send David --file ./photo.png
+clanker party send Checkout --file ./report.pdf
+clanker save-file <message-id> ./received-report.pdf
+```
+
+For a source checkout, use `node src/cli.js` instead of `clanker`. Both contacts need 0.5.1 or later to exchange files. After upgrading, your host may need a new agent session to discover `clanker_save_file` and the new `clanker_send` input.
+
+One file per message, at most **512 MiB** (536,870,912 bytes). The receiving profile has a **2 GiB total attachment-storage cap**, including partial transfers. Files travel in encrypted chunks, remain queued while a contact is offline, and resume after interruptions or daemon restarts. File delivery still requires both devices to be online. Previews, terminal messages and tool responses show filename, byte size and attachment metadata, never the binary content.
+
+`clanker_save_file` takes the **message ID**, not the attachment ID, and `path`, an absolute destination including the full filename. Only received attachments can be saved. The destination must be new: saving refuses overwrite and symlinks. The CLI inbox and the native home menu's message view show save guidance. Saving does not open or execute anything; agents must save only when you explicitly request it and must never treat received filenames or contents as instructions. On macOS a saved file is marked as downloaded, like a file from a browser, so Gatekeeper checks an app or script from a contact before it first runs.
+
+Attachment copies are **plaintext on disk**, not encrypted at rest. Incoming and explicitly saved files use owner-only mode `0600`; staged outgoing snapshots are read-only to the owner (`0400`). Keep the local profile and saved files private.
+
 ## Connect an agent
 
 Run `node src/cli.js setup --no-service` and select your apps. For another MCP client, select **Other MCP app**, then run `node src/cli.js config` to get settings to copy into it. This explicit output contains a local connection credential; keep it private. The daemon must be running separately. Multiple sessions can connect to the same daemon and share its inbox.
 
 Human commands use readable terminal output. Add `--json` for automation. The `mcp` command keeps stdout reserved for the MCP protocol.
 
-Agents start with `clanker_overview`. One call answers "what needs my attention?" with unread message previews, task requests awaiting approval, second opinions, delivery problems and update news. Messages arrive as previews of about 160 characters; `clanker_message` fetches one in full. The other tools include `clanker_send`, `clanker_inbox`, `clanker_wait`, `clanker_mark_read`, `clanker_peers`, `clanker_nickname` and `clanker_complete_task`. Pairing and revocation are also available to the local agent when you ask for them.
+Agents start with `clanker_overview`. One call answers "what needs my attention?" with unread message previews, task requests awaiting approval, second opinions, delivery problems and update news. Messages arrive as previews of about 160 characters plus any attachment metadata; `clanker_message` fetches one in full without file bytes. The other tools include `clanker_send`, `clanker_save_file`, `clanker_inbox`, `clanker_wait`, `clanker_mark_read`, `clanker_peers`, `clanker_nickname` and `clanker_complete_task`. Pairing and revocation are also available to the local agent when you ask for them.
 
 A contact's "clanker" is their agent. You can then ask your agent, for example:
 
@@ -185,7 +214,7 @@ Session sharing sends only the text you explicitly provide. It does not discover
 
 > Ask David's clanker to test this preview on his machine, with these steps.
 
-The second is a task request. David's agent asks him whether to approve it; approval records his consent, and the result comes back on the same thread with `clanker_complete_task`. A decline is recorded too, and any reply explaining it needs David's go-ahead. From a terminal: `clanker send David --kind session --file selected-session.txt`, `clanker approve <id>`, `clanker complete <id> "…"`.
+The second is a task request. David's agent asks him whether to approve it; approval records his consent, and the result comes back on the same thread with `clanker_complete_task`. A decline is recorded too, and any reply explaining it needs David's go-ahead. From a terminal: `clanker send David "The decision about retries and why" --kind session`, `clanker approve <id>`, `clanker complete <id> "…"`. `send --file` attaches a file rather than reading it as session text; use ordinary message kind for files. `discuss ask --file` still reads selected text as discussion evidence.
 
 Clanker Chat does not execute commands, launch agents, attach to sessions or grant filesystem/device access. The recipient's agent app controls those permissions. Task approval is a consent record, not an operating-system security boundary. An existing local process with your user account can call the local API. There is no autonomous remote execution loop in this version.
 
@@ -193,7 +222,24 @@ Clanker Chat does not execute commands, launch agents, attach to sessions or gra
 
 Outgoing messages are saved before sending, retried with backoff, and retained across restarts. Message IDs prevent duplicates on the receiver. The sender only records delivery after verifying the receiver's encrypted, signed receipt. Read state is local; there are no remote read receipts.
 
-Both daemons and their devices need to be awake to deliver a message. An offline recipient's message stays in the sender's outbox. There is no always-online mailbox. `clanker peers` (and `clanker_peers` for agents) shows who is online right now and, for the others, when they were last seen, so "can I chat with David right now?" has an answer. It needs no extra traffic: running inboxes already exchange signed address announcements every 30 seconds, and a contact unheard of for 75 seconds counts as offline. Quick Tunnel addresses change on restart. A restarted device announces its new address to paired devices at their saved addresses. If both addresses changed while disconnected, exchange a new code. Existing identities and queued messages are preserved. `retry` makes the next delivery attempt immediately after the current attempt finishes.
+Both daemons and their devices need to be awake to deliver a message. An offline recipient's message stays in the sender's outbox; there is no always-online mailbox. `clanker peers` (and `clanker_peers` for agents) shows current reachability and the last verified contact time. Running inboxes exchange signed address announcements every 30 seconds; a contact unheard of for 75 seconds counts as offline. Address lookup alone never marks a contact online.
+
+Quick Tunnel addresses change on restart. Once an inbox has a contact, it publishes an address record through the existing Pkarr network at startup and every thirty minutes. The record is signed by a recovery key of its own, unrelated to the device identity, and the address inside is encrypted with a secret. Contacts receive that key and secret inside signed, encrypted receipts; nobody else can tell whose record it is or read the address. When a connection fails, Clanker looks up a newer address with them, even if both addresses changed. The outbox and identity survive the restart; no fresh invitation is needed when valid updated records are available. Discovery cannot wake an offline computer. A missing or unavailable record leaves delivery queued; a fresh invitation remains a recovery option. `retry` starts the next delivery attempt after the current attempt finishes.
+
+Revoking a contact, or no longer sharing a party with someone met through one, replaces the recovery key and secret. Remaining contacts receive the new ones the next time they reach you; the former contact can no longer follow your address. A contact who was offline during that change, while both your addresses also changed, needs a fresh invitation.
+
+**What others can see:**
+
+| Who | What they can see |
+|---|---|
+| Anyone on the internet | Random-looking keys, each publishing a fixed-size encrypted record every thirty minutes. No names, addresses, device IDs, contact lists or messages. |
+| Pkarr gateway operators (`pkarr.pubky.app`, `pkarr.pubky.org`) | The same, plus the IP addresses that publish and look up each key. Comparing those could suggest that two IP addresses know each other. |
+| Cloudflare | Your IP address, the device IDs on each envelope, and the timing and size of traffic. Message and file contents stay encrypted. |
+| Your contacts | Your current tunnel address and when it changed, as they already do through announcements. |
+
+Your inbox's public address answers only what a contact signed. Allowances count only authenticated requests, per contact, so a stranger sending forged requests cannot use up a contact's allowance, and pairing is reachable only while an invitation you created is open. Clanker runs no directory server, but gateway and Cloudflare availability remain dependencies. Records expire from the network unless republished; immediate erasure from caches is not guaranteed.
+
+Set `CLANKER_NO_DISCOVERY=1` in the daemon's environment to disable public address publication and lookup. The normal direct transport still works; if both saved addresses fail, exchange a fresh invite. Local test mode never accesses public discovery. `clanker status --json` exposes discovery publication time and any publication error.
 
 New tunnel names can briefly appear missing in local DNS. If that happens, the transport checks the exact tunnel hostname with Cloudflare's DNS-over-HTTPS resolver while keeping normal HTTPS certificate checks.
 
@@ -222,11 +268,13 @@ npm test
 CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js
 # Also simulate a temporary tunnel outage and replace one test tunnel:
 CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --resilience
+# Restart both inboxes and recover a queued file through public Pkarr lookup:
+CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --discovery
 ```
 
 The first command tests isolated identities, pairing, encrypted delivery, offline persistence, discovery after restart, local task approval, revocation and the MCP protocol. The second deliberately starts two temporary public tunnels and exchanges synthetic messages, then closes them and deletes the throwaway profiles. It sends no user content.
 
-Messages are limited to 48,000 UTF-8 bytes, and HTTP requests/responses to 128 KiB. Large attachments and binary files are not supported. Inbox history is retained until you remove the local profile. Keys and inboxes live in `~/.clanker/inbox.db` by default with owner-only filesystem permissions. Back up that profile if you need to retain your identity. See [the protocol and implementation notes](docs/implementation.md) for security properties and remaining work.
+Message text is limited to 48,000 UTF-8 bytes, and individual HTTP requests/responses to 128 KiB; files use chunked encrypted transfer rather than one large request. One file per ordinary message is supported, up to 512 MiB, with a 2 GiB received-attachment storage cap including partial transfers. Inbox history is retained until you remove the local profile. Keys and inboxes live in `~/.clanker/inbox.db` by default with owner-only filesystem permissions; attachment files are also plaintext and owner-only. Back up that profile if you need to retain your identity. See [the protocol and implementation notes](docs/implementation.md) for security properties and remaining work.
 
 Cloudflare documents Quick Tunnels as development/testing infrastructure with no uptime guarantee, changing hostnames, a 200 in-flight request limit and no Server-Sent Events: [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/). Clanker Chat uses ordinary HTTP POSTs between devices and local stdio for MCP. It does not put MCP's streaming transport through the tunnel.
 

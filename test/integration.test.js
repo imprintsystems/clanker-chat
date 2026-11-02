@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ClankerChat } from '../src/daemon.js';
 import { decodeInvite, seal, open, post, newIdentity } from '../src/protocol.js';
+import { randomUUID } from 'node:crypto';
 import { localCall } from '../src/local.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -41,6 +42,18 @@ test('two identities pair once, exchange selected sessions with durable receipts
   await assert.rejects(() => post(b.origin, '/v1/messages', seal(stranger, b.store.identity.public, 'message', message.payload), true));
   await b.command('read', { id: sent.id }); assert.equal(b.store.status().unread, 0);
   await assert.rejects(() => a.command('send', { to: 'David', text: '🙂'.repeat(13_000) }));
+});
+test('strangers flooding the public address with forged envelopes use up no contact allowance', async t => {
+  const { a, b } = await setup(t);
+  const stranger = newIdentity('Flooder'), contact = a.store.identity.public.id;
+  const payload = () => ({ id: randomUUID(), kind: 'message', text: 'flood', thread: randomUUID(), createdAt: Date.now() });
+  // Twice the old shared per-minute allowance, every envelope claiming to come from a real contact.
+  for (let i = 0; i < 240; i++) {
+    const route = ['/v1/messages', '/v1/announce', '/v1/pair'][i % 3];
+    await assert.rejects(post(b.origin, route, { ...seal(stranger, b.store.identity.public, 'message', payload()), sender: contact }, true), /HTTP 400/);
+  }
+  const sent = await a.command('send', { to: 'David', text: 'Still gets through.' });
+  await until(() => a.store.list({ direction: 'out' }).find(row => row.id === sent.id)?.state === 'delivered');
 });
 test('task requests require local approval, results preserve the thread, and revoked contacts cannot send', async t => {
   const { a, b } = await setup(t);

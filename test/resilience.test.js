@@ -62,7 +62,7 @@ test('forced daemon crashes preserve queued messages, identity, approvals and an
   const savedHistory = (await localCall(homeA, 'inbox')).find(row => row.id === history.id); assert.equal(savedHistory.read, 1);
   assert.equal((await localCall(homeA, 'inbox', { direction: 'out' })).find(row => row.id === queued.id).state, 'queued');
   assert.equal((await localCall(homeB, 'inbox')).find(row => row.id === request.id).decision, 'approved');
-  // Both random endpoints changed. A fresh invitation is the documented recovery path.
+  // Local test mode has no public discovery; a fresh invite reconnects it.
   await localCall(homeB, 'pair', { code: (await localCall(homeA, 'invite')).code });
   await localCall(homeA, 'retry');
   await until(async () => (await localCall(homeA, 'inbox', { direction: 'out' })).find(row => row.id === queued.id)?.state === 'delivered', 'queued message recovery');
@@ -78,7 +78,7 @@ test('forced daemon crashes preserve queued messages, identity, approvals and an
 test('a failed tunnel makes the foreground process exit for a supervisor to restart it', async t => {
   const root = mkdtempSync(join(tmpdir(), 'cc-tunnel-exit-')); const fake = join(root, 'cloudflared');
   writeFileSync(fake, `#!${process.execPath}\nconsole.log('https://synthetic-tunnel.trycloudflare.com');\nsetTimeout(() => process.exit(1), 500);\n`, { mode: 0o700 });
-  const child = spawn(process.execPath, [cli, 'start', '--home', join(root, 'profile'), '--name', 'Synthetic', '--json'], { env: { ...process.env, CLOUDFLARED_BIN: fake }, stdio: ['ignore', 'ignore', 'ignore'] });
+  const child = spawn(process.execPath, [cli, 'start', '--home', join(root, 'profile'), '--name', 'Synthetic', '--json'], { env: { ...process.env, CLOUDFLARED_BIN: fake, CLANKER_NO_DISCOVERY: '1' }, stdio: ['ignore', 'ignore', 'ignore'] });
   t.after(async () => { await kill(child); rmSync(root, { recursive: true, force: true }); });
   await once(child, 'exit', { signal: AbortSignal.timeout(10_000) });
   assert.equal(child.exitCode, 1); assert.equal(child.signalCode, null);
