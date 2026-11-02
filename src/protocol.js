@@ -102,6 +102,22 @@ export const identityCard = identity => sign(null, cardData(identity.public), id
 export function verifyCard(identity, value) {
   try { return verify(null, cardData(identity), pub(identity.signKey), Buffer.from(value, 'base64')); } catch { return false; }
 }
+// Rotating encryption keys. The identity's own encryption key never changes;
+// on top of it each inbox makes a new one every week, signed by its identity
+// key, and deletes it soon after the next. Contacts encrypt messages and file
+// chunks to the newest one they hold, so a key stolen later cannot open
+// traffic recorded before it existed.
+export const boxKeySchema = z.object({ key, from: z.number().int().positive(), signature: z.string().max(128) }).strict();
+const boxData = (id, value, from) => Buffer.from(`clanker-box-v1:${id}:${value}:${from}`);
+export function newBoxKey(identity, from) {
+  const box = generateKeyPairSync('x25519'), value = exportPub(box.publicKey);
+  return { key: value, from, signature: sign(null, boxData(identity.public.id, value, from), identity.signPrivate).toString('base64'), private: exportPrivate(box.privateKey) };
+}
+export function verifyBoxKey(identity, value) {
+  const statement = boxKeySchema.parse(value);
+  if (pub(statement.key).asymmetricKeyType !== 'x25519' || !verify(null, boxData(identity.id, statement.key, statement.from), pub(identity.signKey), Buffer.from(statement.signature, 'base64'))) throw new Error('Invalid encryption key statement');
+  return statement;
+}
 export function endpoint(value, allowLoopback = false) {
   const url = new URL(value);
   const local = allowLoopback && url.protocol === 'http:' && url.hostname === '127.0.0.1' && Number(url.port) > 0;
@@ -136,11 +152,19 @@ function verifyEnvelope(identity, e, sender, type, checkTime = true) {
   if (checkTime && Math.abs(Date.now() - e.at) > 300_000) throw new Error('Envelope expired; check device clocks');
   if (!verify(null, signedData(e), pub(sender.signKey), Buffer.from(e.signature, 'base64'))) throw new Error('Invalid signature');
 }
+// Tries the inbox's rotating keys, newest first, then the identity's own key.
+// Authentication fails cleanly for a wrong key, so trying is safe.
 function decrypt(identity, e) {
-  const decipher = createDecipheriv('aes-256-gcm', secret(createPrivateKey(identity.boxPrivate), pub(e.ephemeral), e.sender, e.recipient), Buffer.from(e.iv, 'base64'));
-  decipher.setAAD(Buffer.from(JSON.stringify(header(e))));
-  decipher.setAuthTag(Buffer.from(e.tag, 'base64'));
-  return JSON.parse(Buffer.concat([decipher.update(Buffer.from(e.body, 'base64')), decipher.final()]).toString());
+  const keys = identity.boxPrivates || [identity.boxPrivate];
+  for (const [index, privateKey] of keys.entries()) {
+    const decipher = createDecipheriv('aes-256-gcm', secret(createPrivateKey(privateKey), pub(e.ephemeral), e.sender, e.recipient), Buffer.from(e.iv, 'base64'));
+    decipher.setAAD(Buffer.from(JSON.stringify(header(e))));
+    decipher.setAuthTag(Buffer.from(e.tag, 'base64'));
+    let plain;
+    try { plain = Buffer.concat([decipher.update(Buffer.from(e.body, 'base64')), decipher.final()]); }
+    catch (error) { if (index === keys.length - 1) throw error; continue; }
+    return JSON.parse(plain.toString());
+  }
 }
 // Pairing is the only operation whose sender is initially unknown. Decrypt, then
 // verify the self-contained identity before trusting any field or doing any I/O.

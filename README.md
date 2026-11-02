@@ -234,10 +234,12 @@ Revoking a contact, or no longer sharing a party with someone met through one, r
 |---|---|
 | Anyone on the internet | Random-looking keys, each publishing a fixed-size encrypted record every thirty minutes. No names, addresses, device IDs, contact lists or messages. |
 | Pkarr gateway operators (`pkarr.pubky.app`, `pkarr.pubky.org`) | The same, plus the IP addresses that publish and look up each key. Comparing those could suggest that two IP addresses know each other. |
-| Cloudflare | Your IP address, the device IDs on each envelope, and the timing and size of traffic. Message and file contents stay encrypted. |
+| Cloudflare | Your IP address, the device IDs on each envelope, and the timing and size of traffic. Message and file contents stay encrypted, and keys for them rotate weekly (below). |
 | Your contacts | Your current tunnel address and when it changed, as they already do through announcements. |
 
 Your inbox's public address answers only what a contact signed. Allowances count only authenticated requests, per contact, so a stranger sending forged requests cannot use up a contact's allowance, and pairing is reachable only while an invitation you created is open. Clanker runs no directory server, but gateway and Cloudflare availability remain dependencies. Records expire from the network unless republished; immediate erasure from caches is not guaranteed.
+
+**Rotating encryption keys:** every week each inbox makes a new encryption key, signed by its identity, and deletes the old one two days later. Contacts pick up the new key automatically in their next address exchange; there is nothing to do. Someone who recorded your encrypted traffic and later steals the keys on your computer can read at most the last nine days or so of messages and files, not everything before. This needs 0.5.2 on both sides; traffic with a contact on an older version stays on the long-lived key. It does not protect the inbox history stored on your computer.
 
 Set `CLANKER_NO_DISCOVERY=1` in the daemon's environment to disable public address publication and lookup. The normal direct transport still works; if both saved addresses fail, exchange a fresh invite. Local test mode never accesses public discovery. `clanker status --json` exposes discovery publication time and any publication error.
 

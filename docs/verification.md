@@ -205,3 +205,15 @@ Not verified: production-scale traffic, a flood large enough to matter at the ne
 ## Release 0.5.1, 2 November 2026
 
 0.5.1 ships file attachments, invite links, private address recovery, the request-limit change and the macOS quarantine mark described above. Before release, `npm test` passed **105 tests** with zero failures, cancellations or skips. The release archive was extracted to a temporary folder, where `node src/cli.js --version` reported 0.5.1 and `--help` ran, with the Pkarr client bundled.
+
+## Rotating encryption keys, 2 November 2026
+
+With Node.js 24.22.2 on macOS arm64, `npm test` passed **109 tests**, with zero failures, cancellations or skips.
+
+- A message encrypted to a contact's rotating key opened with that contact's keys, but not with the identity's own key. It still opened after the next weekly rotation, one millisecond before the two-day grace period ended. After that the old key was deleted and the recorded message could no longer be opened with any key left on the device. The deleted key's bytes were absent from both the database file and its write-ahead log.
+- Key statements signed by another identity, a swapped key, an altered start time, a missing signature, a start more than five minutes ahead and malformed input were all refused. An older statement never replaced a newer one, and a contact with no statement kept receiving traffic encrypted to the identity key.
+- Two inboxes exchanged keys automatically after pairing. One then rotated and deleted the key the other still held. A message and a 70,001-byte file sent to the deleted key were refused at first, then delivered after the sender's next address announcement returned the current key.
+- With an inbox running the published 0.5.1 package, this version paired, exchanged text and files in both directions, and kept encrypting to the 0.5.1 inbox's identity key.
+- `node test/cloudflare-smoke.js --discovery` passed against real Cloudflare Quick Tunnels and the public Pkarr gateways with this change in place.
+
+Not verified: a contact offline through several rotations on a second physical computer, or clock changes larger than the five-minute allowance. Backups of the profile folder may still hold deleted keys.

@@ -19,6 +19,7 @@ import { overview, fullMessage, summarize, peerNames, partyNames } from './overv
 import { Updates } from './updates.js';
 import { Attachments } from './attachments.js';
 import { Discovery, discoveryCredentials } from './discovery.js';
+import { Keys } from './keys.js';
 
 const filePath = z.string().min(1).max(4096).refine(isAbsolute, 'Use an absolute file path');
 const sendSchema = z.object({
@@ -71,6 +72,7 @@ export class ClankerChat extends EventEmitter {
     chmodSync(socketPath(home), 0o600);
     try {
       this.store = new Store(home, name);
+      this.keys = new Keys(this.store, this.options.keys);
       this.discovery = new Discovery(this.store, {
         ...this.options.discovery, local,
         enabled: this.options.discovery !== false && process.env.CLANKER_NO_DISCOVERY !== '1'
@@ -80,6 +82,7 @@ export class ClankerChat extends EventEmitter {
       this.attachments = new Attachments(home, this.store, {
         local, stopping: () => this.stopping,
         allowed: (peer, party) => this.allowAttachment(peer, party),
+        recipient: peer => this.keys.sealTo(peer),
         transport: (peer, route, envelope, party) => this.postPeer(peer, route, envelope, () => this.allowAttachment(peer.id, party))
       });
       // Bridge activity wakes waiting agents but is not news for the user.
@@ -97,6 +100,7 @@ export class ClankerChat extends EventEmitter {
       if (this.stopping) throw new Error('Daemon stopped during startup');
       this.timer = setInterval(() => {
         this.tick(); this.notifications.tick().catch(error => this.emit('warning', error.message)); this.updates.tick().catch(() => {}); this.bridges.tick();
+        this.keys.tick();
         this.retainDiscovery();
         if (this.endpointReady) this.discovery.tick(this.origin);
       }, 2_000);
@@ -149,7 +153,7 @@ export class ClankerChat extends EventEmitter {
           this.emit('paired', sender);
           // Announce now, so the new contact's receipt brings their recovery key.
           this.lastAnnounce = 0; this.tick();
-          return json(res, 200, seal(this.store.identity, sender, 'receipt', { requestId: envelope.id, paired: true, ...await this.shareDiscovery(sender.id) }));
+          return json(res, 200, seal(this.store.identity, sender, 'receipt', { requestId: envelope.id, paired: true, box: this.keys.statement(), ...await this.shareDiscovery(sender.id) }));
         } catch (error) { this.rate.pairFailures++; throw error; }
       }
       const envelope = await readJSON(req);
@@ -157,7 +161,7 @@ export class ClankerChat extends EventEmitter {
       const peer = this.store.peer(envelope.sender);
       if (peer.revoked) throw new Error('Peer revoked');
       if (req.url === '/v1/announce' && peer.partyOnly && !this.parties.shared(peer.id)) throw new Error('No shared party');
-      const data = open(this.store.identity, envelope, peer.identity, ROUTES[req.url]);
+      const data = open(this.keys.receiver(), envelope, peer.identity, ROUTES[req.url]);
       // Allowances count only authenticated requests, per contact: a stranger
       // cannot use them up, and one contact cannot use up another's. File
       // chunks have their own, so a video does not hold up ordinary messages.
@@ -189,9 +193,9 @@ export class ClankerChat extends EventEmitter {
       this.store.saw(peer.id);
       const origin = endpoint(announced.endpoint, this.options.local);
       if (envelope.at > peer.announced) this.store.prepare('UPDATE peers SET endpoint=?,announced=? WHERE id=?').run(origin, envelope.at, peer.id);
-      // Receipts carry this inbox's recovery key and secret; releases without
-      // private recovery ignore the extra field.
-      return json(res, 200, seal(this.store.identity, peer.identity, 'receipt', { requestId: envelope.id, updated: true, ...await this.shareDiscovery(peer.id) }));
+      // Receipts carry this inbox's current encryption key and its recovery key
+      // and secret; older releases ignore the extra fields.
+      return json(res, 200, seal(this.store.identity, peer.identity, 'receipt', { requestId: envelope.id, updated: true, box: this.keys.statement(), ...await this.shareDiscovery(peer.id) }));
     } catch { json(res, 400, { error: 'Request rejected' }); }
   }
   async adminRequest(req, res) {
@@ -233,7 +237,7 @@ export class ClankerChat extends EventEmitter {
       case 'notification_register': return this.notifications.register(args);
       case 'notification_unregister': return this.notifications.unregister(args.session,args.lease);
       case 'notifications': return this.notifications.status();
-      case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION, discovery: this.discovery.status() };
+      case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION, discovery: this.discovery.status(), encryptionKeySince: this.keys.statement().from };
       case 'overview': { const consume = args.consume !== false; return overview(this.store, this.discussions, { online: this.endpointReady, update: this.updates.notice(consume), bridges: this.bridges.overview(consume) }); }
       case 'message': return fullMessage(this.store, messageId.parse(args.id));
       case 'save_file': {
@@ -267,6 +271,7 @@ export class ClankerChat extends EventEmitter {
         if (response.requestId !== envelope.id || response.paired !== true) throw new Error('Invalid pairing receipt');
         this.store.savePeer(invite.identity, invite.endpoint);
         this.saveDiscovery(invite.identity.id, response.discovery);
+        this.keys.accept(this.store.peer(invite.identity.id), response.box);
         this.store.saw(invite.identity.id);
         this.store.prepare("UPDATE messages SET retryAt=0 WHERE peer=? AND state='queued'").run(invite.identity.id);
         this.tick();
@@ -431,6 +436,7 @@ export class ClankerChat extends EventEmitter {
           if (receipt.requestId !== envelope.id || receipt.updated !== true) throw new Error('Invalid address receipt');
           this.store.saw(peer.id);
           this.saveDiscovery(peer.id, receipt.discovery);
+          this.keys.accept(peer, receipt.box);
         } catch { /* An offline friend will be retried on the next announcement. */ }
       }));
       if (this.stopping) return;
@@ -491,7 +497,7 @@ export class ClankerChat extends EventEmitter {
       await this.attachments.send(peer, row.payload.attachment, row.payload.party);
       if (this.stopping || this.store.peer(peer.id).revoked || this.store.prepare('SELECT state FROM messages WHERE id=?').get(row.id)?.state !== 'queued') return;
     }
-    const envelope = seal(this.store.identity, peer.identity, 'message', row.payload);
+    const envelope = seal(this.store.identity, this.keys.sealTo(peer), 'message', row.payload);
     const receipt = open(this.store.identity, await this.postPeer(peer, '/v1/messages', envelope, () => {
       if (this.store.prepare('SELECT state FROM messages WHERE id=?').get(row.id)?.state !== 'queued') throw new Error('Message cancelled');
       if (row.payload.party && row.payload.kind !== 'party') this.allowAttachment(peer.id, row.payload.party);

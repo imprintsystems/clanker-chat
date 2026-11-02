@@ -56,8 +56,8 @@ async function digest(file, size, destination) {
 // The database reserves the full declared size, including unfinished transfers.
 // Internal paths are random local tokens, never names or paths supplied by a peer.
 export class Attachments {
-  constructor(home, store, { local = false, stopping = () => false, allowed = () => {}, transport = (peer, route, envelope) => post(peer.endpoint, route, envelope, local) } = {}) {
-    Object.assign(this, { store, local, stopping, allowed, transport, locks: new Map() });
+  constructor(home, store, { local = false, stopping = () => false, allowed = () => {}, recipient = peer => peer.identity, transport = (peer, route, envelope) => post(peer.endpoint, route, envelope, local) } = {}) {
+    Object.assign(this, { store, local, stopping, allowed, recipient, transport, locks: new Map() });
     this.directory = join(home, 'files');
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     if (!lstatSync(this.directory).isDirectory() || lstatSync(this.directory).isSymbolicLink()) throw new Error('Attachment directory must not be a symlink');
@@ -113,7 +113,7 @@ export class Attachments {
       const request = async data => {
         await this.allowed(peer.id, scope);
         if (this.stopping()) throw new Error('Attachment transfer stopped');
-        const envelope = seal(this.store.identity, peer.identity, 'attachment', { ...data, ...(scope ? { party: scope } : {}) });
+        const envelope = seal(this.store.identity, this.recipient(peer), 'attachment', { ...data, ...(scope ? { party: scope } : {}) });
         const response = await this.transport(peer, '/v1/attachments', envelope, scope);
         const receipt = receiptSchema.parse(open(this.store.identity, response, peer.identity, 'receipt'));
         if (receipt.requestId !== envelope.id || receipt.id !== attachment.id || receipt.offset > attachment.size || (receipt.complete && receipt.offset !== attachment.size)) throw new Error('Invalid attachment receipt');
