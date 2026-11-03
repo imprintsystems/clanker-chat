@@ -226,9 +226,9 @@ Not verified: a contact offline through several rotations on a second physical c
 
 0.5.2 ships the rotating encryption keys above. Before release, `npm test` passed **109 tests** with zero failures, cancellations or skips, and the release archive reported 0.5.2 from a temporary folder.
 
-## Remaining app integrations (unreleased), 2 November 2026
+## Remaining app integrations (pre-0.6.0 checks), 2 November 2026
 
-These are development-checkout results, not a release. Checks used disposable HOME/XDG/Clanker profiles, loopback-only inboxes, synthetic evidence and local synthetic model providers. No signed-in provider credentials or real app settings/history were copied, no real contact was messaged, and no installed service was changed.
+These checks preceded the 0.6.0 release. Checks used disposable HOME/XDG/Clanker profiles, loopback-only inboxes, synthetic evidence and local synthetic model providers. No signed-in provider credentials or real app settings/history were copied, no real contact was messaged, and no installed service was changed.
 
 - **OpenCode 2.2.5** (`@opencode/cli`, with matching native client/plugin types): the real server loaded Clanker's server plugin and native `mcp.servers.clanker` configuration. Setup updated a pre-existing owned native entry and preserved a separate disabled native server. After asynchronous startup, the native MCP API reported Clanker `connected` and the other server `disabled`. A real session called the discussion tools through native Code Mode; the plugin resumed that exact participant session, claimed/replied/completed the accepted discussion, and left another project's session untouched. Ordinary message arrival made zero model requests. The actual event stream emitted `session.execution.started`/`succeeded`, including events without a location; only previously validated session IDs were eligible for continuation.
 - **OpenCode native read-only bridge**: its actual `serve --hostname 127.0.0.1 --port 0 --stdio` host created a private session through the native API. The real `run --server <local-url> --session <local-session> --format json` CLI read a synthetic plan and returned its Thursday answer. Provider requests exposed exactly `glob`, `grep` and `read`, not shell, write, subagent, Code Mode or MCP tools. This validates host session permissions, not an operating-system sandbox; trusted host plugins/MCP processes can still initialize.
@@ -248,7 +248,7 @@ A separate read-only Cursor check used official CLI **2026.10.22-27dcf5f**: it a
 
 Remaining prerequisites/limits: real-model/account runs for the new OpenCode/Hermes paths; OpenCode desktop GUI proof; authenticated Cursor answering and configured native MCP discovery; Claude Desktop/VS Code real-host checks and a supported current idle/headless API; Codex desktop automatic hook registration and visible delivery. VS Code's old outside-chat sampling service is not used: current MCP MRTR forbids standalone server requests and sampling is deprecated. Active-session MCP and explicit self bridges remain available; no unrelated CLI is relabelled as one of those apps.
 
-## Agent-first terminal entry (unreleased), 2 November 2026
+## Agent-first terminal entry (pre-0.6.0 checks), 2 November 2026
 
 The root `clanker` command and root help now show a compact agent-first introduction, with manual controls beneath it. The root path does not load or modify a profile, start setup, restart the inbox or consume message/update state. `clanker home` explicitly opens the previous interactive inbox menu. App inventory is labelled **Connected apps**; this change does not add durable agent roles, standing grants, a team-task directory or new notification behavior.
 
@@ -262,7 +262,7 @@ After removing incidental catalog/copy/default assertions, `node --test test/cli
 
 These are local development-checkout results, not a release or a physical-terminal/app-integration guarantee. Notification behavior was not changed or newly verified by this workstream.
 
-## Codex next-turn inbox warning (unreleased), 3 November 2026
+## Codex next-turn inbox warning (pre-0.6.0 checks), 3 November 2026
 
 Routine Codex inbox arrivals no longer use `codex queue`. A trusted synchronous `UserPromptSubmit` hook returns only native `systemMessage` JSON, such as **Clanker Chat · 3 unread**, once per chat's unread batch. It adds no developer context, user-message block or request for an assistant response. The timing is deliberately the next normal user turn, not an immediate idle indicator. Already accepted second-opinion work retains its separate session-queue continuation.
 
@@ -274,7 +274,7 @@ Against a disposable loopback inbox, the real Node.js hook command emitted exact
 
 At this stage, native visual placement remained unverified; the later quiet-count checks below record subsequent Codex evidence. Hook stdout alone does not prove the native warning's exact placement or subtlety, absence of a new visible prompt block, or native model-turn behavior. No immediate idle badge or new desktop display path is claimed.
 
-## Consistent quiet inbox counts (unreleased), 3 November 2026
+## Consistent quiet inbox counts (pre-0.6.0 checks), 3 November 2026
 
 This work extends the existing quiet Codex behavior across supported integrations. Routine awareness is a single **Clanker Chat · N unread** count per unread batch on the host's existing surface, with no remote names/body/policy text, automatic inbox reading or extra model turn. OMP no longer adds a routine conversation card; Hermes keeps display posts separate from discussion injection; OpenCode uses the documented message-only toast, retaining its existing global TUI scope and one app-level boundary without router dependencies. Claude Code uses a genuine `UserPromptSubmit` warning hook instead of ordinary arrival channels. Accepted-discussion continuation remains authorized and separate.
 
@@ -292,7 +292,7 @@ Codex CLI 0.166.0's native `Hook · Clanker Chat · 3 unread` was observed durin
 
 Checks used disposable profiles and synthetic data without changing an installed service, copying authentication/trust records or contacting real contacts.
 
-## Notification lifecycle regressions (unreleased), 3 November 2026
+## Notification lifecycle regressions (pre-0.6.0 checks), 3 November 2026
 
 Count-notice claims now persist while their covered messages remain unread, even after 25 hours; Codex session-lease expiry is unchanged. A regression covering both Codex and Claude failed before the fix because the same batch was announced again after a 26-hour clock advance, without any new arrival.
 
@@ -300,7 +300,7 @@ OpenCode's workerless discussion poll excludes active turn claims. Its delivery 
 
 The final Node.js 24 `npm test` run passed **128 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. CLI smoke checks returned `clanker 0.5.2` from `--version` and the agent-first introduction from `--help`. These checks use synthetic local profiles; they do not add native-app visual or real-model verification.
 
-## Optional next-prompt inbox mentions (unreleased), 3 November 2026
+## Optional next-prompt inbox mentions (pre-0.6.0 checks), 3 November 2026
 
 The initial Node.js 24 `npm ci --ignore-scripts` and `npm test` run passed **131 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. Consumer coverage included one sender/preview note per unread batch, no repeat on the next prompt, read rearming, unchanged unread state, nickname display, sanitized/capped previews, revocation and the live owner-only `--agent-note on|off` toggle.
 
@@ -314,7 +314,7 @@ OpenCode stays display-only because [prompt admission](https://opencode.ai/v2/do
 
 This verifies hook JSON, adapter/setting behavior and unread-batch semantics, not new authenticated native-host visual placement or real-model compliance with the one-sentence instruction. The previous count-only provider captures do not establish the new note's model behavior.
 
-## Inbox-note review corrections (unreleased), 3 November 2026
+## Inbox-note review corrections (pre-0.6.0 checks), 3 November 2026
 
 Note previews now use the overview's ordinary-inbox filters, excluding internal discussion/party/bridge events and pending approvals. The unread count still matches the native display, while `previewable` identifies the ordinary inbox subset and “and N more” counts only that subset. A regression inserts unread protocol rows without text and confirms that they are not summarized, the count remains coherent and no message is marked read. A synthetic formatter failure confirms that context is built before the display claim, leaving the claim available after failure. Literal contact-data delimiter markers are stripped from names and previews before whitespace sanitization and truncation.
 
@@ -324,7 +324,7 @@ The full Node.js 24 `npm test` run passed **133 tests**, with **0 failures, 0 ca
 
 Both actual Claude/Codex hook commands were repeated against disposable profiles initialized with `setup --no-service` and paired local synthetic inboxes. Each first prompt returned `systemMessage` and nested `UserPromptSubmit.additionalContext` with the ordinary sender/preview data; each second prompt returned empty stdout. Unread remained one; the CLI toggle reported `agentNote: false`. All temporary profiles and installed test dependencies were removed. No native-app visual or real-model proof is claimed.
 
-## Decision arrivals in next-prompt notes (unreleased), 3 November 2026
+## Decision arrivals in next-prompt notes (pre-0.6.0 checks), 3 November 2026
 
 Inbox notes now include the owner decisions surfaced by the overview: pending task requests, second-opinion proposals, party invites and bridge proposals. They preview task text, discussion question, party name or bridge topic, with sender nickname and explicit kind, using the same sanitization/caps and shared newest-first three-item limit as ordinary messages. Only unread arrivals within the batch boundary count toward the preview list and “and N more”; internal protocol traffic remains excluded. This supersedes the earlier exclusion of pending approvals from note previews. The shortened instruction still permits mentioning only and explicitly requires the user's yes before approving, accepting, joining or opening.
 
@@ -332,10 +332,16 @@ Node.js 24 `npm ci --ignore-scripts` and the full `npm test` suite passed **134 
 
 Actual Claude and Codex hook commands ran against paired disposable local profiles initialized with `setup --no-service`. An encrypted ordinary message and a second-opinion proposal arrived. Each first prompt returned **Clanker Chat · 2 unread** plus a note listing the proposal question before the message; each second prompt returned empty stdout. Both messages remained unread and the discussion remained `proposed`, with no acceptance. Temporary profiles and test dependencies were removed. No real contact, installed service, native visual rendering or real-model response was involved.
 
-## Agent-controlled inbox-note setting (unreleased), 3 November 2026
+## Agent-controlled inbox-note setting (pre-0.6.0 checks), 3 November 2026
 
 Any connected agent can now read the local inbox-note setting or change it when the local user asks, using `clanker_agent_note` with optional `setting: "on" | "off"`. No confirmation dialog is needed. The tool reports that the note applies to Claude Code and Codex; OMP, Hermes and OpenCode remain display-only. The CLI flag remains available. Session-hook registration, unregistration and notice claims remain owner-only.
 
 Node.js 24 `npm ci --ignore-scripts` and the full `npm test` suite passed **136 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. New consumer coverage includes enabled display-only app credentials reading/changing the daemon setting, the next claimed batch reflecting the change, no reannouncement of already claimed batches, revoked apps receiving the normal not-connected error, continued refusal of MCP credentials at hook endpoints, and the actual stdio MCP tool controlling a real Claude prompt hook.
 
 A separate smoke check ran the actual MCP server over stdio with an enabled app credential and a disposable local profile. Reading returned `{"agentNote":true,"appliesTo":["Claude Code","Codex"]}`. Switching off returned `agentNote: false`; the real `notify claude` command then emitted only `{"systemMessage":"Clanker Chat · 1 unread"}`. Switching on and delivering the next unread batch restored `hookSpecificOutput` with `hookEventName: "UserPromptSubmit"` and the sender/preview note. A repeated prompt emitted no output; the message remained unread. Temporary profiles, the smoke script and installed test dependencies were removed. No real contact, installed service, native visual rendering or real-model response was involved.
+
+## Release 0.6.0, 3 November 2026
+
+0.6.0 ships next-prompt sender/preview notes for Claude Code and Codex, with an agent-controlled off switch, OpenCode 2 support, quieter one-per-batch alerts and the agent-first CLI. OMP, Hermes and OpenCode remain display-only for ordinary inbox arrivals; accepted discussions keep their separate authorized continuation paths.
+
+Before release, Node.js 24 `npm ci --ignore-scripts` and the full `npm test` suite passed **136 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. The checks above cover actual hook JSON, settings access and unread-batch behavior. They do not establish new authenticated native-app visual placement, real-model compliance with the one-sentence note or OpenCode desktop GUI behavior.

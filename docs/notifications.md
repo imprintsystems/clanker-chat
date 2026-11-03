@@ -1,6 +1,6 @@
 # Inbox notices and accepted-work alerts
 
-Select apps with `clanker agents`, then open a new session in each app. Setup saves the MCP connection and the local notification integration. From 0.3.1, upgrades refresh integrations for the apps already selected. The consistent quiet-notice behavior below is an **unreleased checkout change**, not published 0.5.2 behavior.
+Select apps with `clanker agents`, then open a new session in each app. Setup saves the MCP connection and the local notification integration. From 0.3.1, upgrades refresh integrations for the apps already selected. The consistent quiet-notice behavior below ships in **0.6.0**.
 
 | App | Inbox-awareness surface and timing | Live verification |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ Restart OMP after connecting it. Clanker installs `extensions/clanker-chat.js` n
 
 OMP has no documented hidden per-request context path; its [`input` hook](https://github.com/can1357/oh-my-pi/blob/594670d6b0b6d5f8080693aad34dedd38b5ebd94/packages/coding-agent/src/session/agent-session.ts#L8330-L8413) replaces the visible user message, so ordinary arrivals stay display-only.
 
-Already accepted second-opinion work retains its separate continuation path; ordinary inbox arrivals never authorize it. Consumer regressions cover the installed credential-free wrapper, unchanged user text, both setting states, count-only coalescing, session reset and no headless/model fallback. No native rendering/provider run is claimed for this checkout change.
+Already accepted second-opinion work retains its separate continuation path; ordinary inbox arrivals never authorize it. Consumer regressions cover the installed credential-free wrapper, unchanged user text, both setting states, count-only coalescing, session reset and no headless/model fallback. No native rendering/provider run is claimed for this 0.6.0 change.
 
 ## Hermes
 
@@ -58,7 +58,7 @@ This requests only `server:clanker`; Claude displays its own warning and consent
 
 ## OpenCode
 
-This checkout adds an unreleased native **OpenCode 2** integration, originally exercised on 2.2.5. Select OpenCode, then restart it. Setup installs a native package directory `plugins/clanker-chat/` alongside its configuration, with separate `index.js` server and `tui.js` terminal parts. Each uses that app's existing local grant. The TUI part polls unread metadata every two seconds and calls documented `ui.toast.show` with the count-only message. It preserves the existing global toast scope and one unread-batch boundary; switching routes or chats does not repeat a pending batch. Global home-screen awareness is preserved without adding router dependencies. There is no model prompt or headless fallback.
+Version 0.6.0 adds a native **OpenCode 2** integration, originally exercised on 2.2.5. Select OpenCode, then restart it. Setup installs a native package directory `plugins/clanker-chat/` alongside its configuration, with separate `index.js` server and `tui.js` terminal parts. Each uses that app's existing local grant. The TUI part polls unread metadata every two seconds and calls documented `ui.toast.show` with the count-only message. It preserves the existing global toast scope and one unread-batch boundary; switching routes or chats does not repeat a pending batch. Global home-screen awareness is preserved without adding router dependencies. There is no model prompt or headless fallback.
 
 OpenCode stays display-only because [prompt admission](https://opencode.ai/v2/docs/build/plugins/server/#prompt-admission) also handles programmatic submissions, while context hooks run on continuations; neither provides a trusted next-user-request boundary.
 

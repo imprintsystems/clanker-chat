@@ -1,6 +1,10 @@
 // Shown once after an upgrade, by the agent's overview call or the clanker home
 // screen. Two short lines a person would actually want to hear.
 export const NOTES = {
+  '0.6.0': [
+    'Your agent now mentions new Clanker messages in one sentence on your next prompt in Claude Code and Codex. Ask it to turn that off any time.',
+    'OpenCode 2 support, and quieter alerts everywhere: one notice per batch of new messages, never an extra agent turn.'
+  ],
   // Most people upgrade straight from 0.5.0, so this repeats 0.5.1's news.
   '0.5.2': [
     'Send files and invite links: ask your agent to send a file to a contact or party, or to make a link you paste to a friend.',

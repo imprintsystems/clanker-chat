@@ -1,5 +1,5 @@
 name: clanker-chat
-version: 0.5.2
+version: 0.6.0
 description: Show Clanker Chat inbox alerts in the receiving session.
 api_version: 1
 provides_hooks:
