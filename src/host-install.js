@@ -25,10 +25,14 @@ function managedFile(path, contents, home, client, remove, write) {
   mkdirSync(home,{recursive:true,mode:0o700});const temp=`${registry}.${randomUUID()}.tmp`;
   writeFileSync(temp,JSON.stringify(saved,null,2)+'\n',{mode:0o600,flag:'wx'});renameSync(temp,registry);
 }
-// Codex connections made before 0.3.0 have no alert hook; setup adds it.
+// Presence includes the next-turn notice hook, not just legacy queue listeners.
 export function codexAlertsInstalled(client) {
   const file = join(dirname(client.file), 'hooks.json');
-  return existsSync(file) && readFileSync(file, 'utf8').includes('"Clanker Chat alerts"');
+  if(!existsSync(file))return false;
+  const errors=[],config=parse(readFileSync(file,'utf8'),errors,{allowTrailingComma:true});
+  return !errors.length && ['SessionStart','SessionEnd','UserPromptSubmit'].every(event=>
+    Array.isArray(config?.hooks?.[event]) && config.hooks[event].some(group=>
+      Array.isArray(group?.hooks) && group.hooks.some(hook=>hook?.statusMessage==='Clanker Chat alerts')));
 }
 export function installNotifications(client, launch, home, { remove=false, write } = {}) {
   if (client.id === 'omp') managedFile(join(dirname(client.file),'extensions/clanker-chat.js'),readFileSync(join(assets,'omp.js'),'utf8'),home,client,remove,write);
@@ -47,19 +51,20 @@ export function installNotifications(client, launch, home, { remove=false, write
       catch (error) { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error; }
     }
   }
-  if (client.id !== 'codex') return;
-  const file=join(dirname(client.file),'hooks.json');const original=existsSync(file)?readFileSync(file,'utf8'):'';const errors=[];
+  if (!['codex','claude'].includes(client.id)) return;
+  const file=client.id==='codex'?join(dirname(client.file),'hooks.json'):join(client.roots[0],'settings.json');
+  const original=existsSync(file)?readFileSync(file,'utf8'):'';const errors=[];
   const config=parse(original||'{}',errors,{allowTrailingComma:true});
-  if(errors.length||!config||Array.isArray(config)||typeof config!=='object')throw new Error('Codex hook settings could not be read. They were left unchanged.');
-  const command=[launch.command,...launch.args.slice(0,-1),'notify','codex','--home',home,'--agent-home',client.agentHome||dirname(client.file),'--agent-bin',client.executable].map(quote).join(' ');
+  if(errors.length||!config||Array.isArray(config)||typeof config!=='object')throw new Error(`${client.label} hook settings could not be read. They were left unchanged.`);
+  const command=[launch.command,...launch.args.slice(0,-1),'notify',client.id,'--home',home,...(client.id==='codex'?['--agent-home',client.agentHome||dirname(client.file),'--agent-bin',client.executable]:[])].map(quote).join(' ');
   let next=original||'{}\n';
-  for(const event of ['SessionStart','SessionEnd']) {
+  for(const event of client.id==='codex'?['SessionStart','SessionEnd','UserPromptSubmit']:['SessionEnd','UserPromptSubmit']) {
     const groups=config.hooks?.[event]||[];
-    if(!Array.isArray(groups)||groups.some(g=>!Array.isArray(g.hooks)))throw new Error('Codex has unsupported hook settings. They were left unchanged.');
+    if(!Array.isArray(groups)||groups.some(g=>!Array.isArray(g.hooks)))throw new Error(`${client.label} has unsupported hook settings. They were left unchanged.`);
     const retained=[];
     for(const group of groups){const hooks=[];for(const hook of group.hooks){if(hook.statusMessage!=='Clanker Chat alerts'){hooks.push(hook);continue;}if(hook.command!==command)throw new Error('A different Clanker Chat notification hook exists. It was left unchanged.');}if(hooks.length)retained.push({...group,hooks});}
     if(!remove)retained.push({hooks:[{type:'command',command,statusMessage:'Clanker Chat alerts',timeout:event==='SessionStart'?86400:3,...(event==='SessionStart'?{async:true}:{})}]});
     next=applyEdits(next,modify(next,['hooks',event],retained,{formattingOptions:{insertSpaces:true,tabSize:2}}));
   }
-  write({id:'codex',label:'Codex hooks',file},original,next,home);
+  write({id:client.id,label:`${client.label} hooks`,file},original,next,home);
 }

@@ -1,23 +1,54 @@
 """Exercise the plugin against Hermes' JSON-text envelope without a model/provider."""
 import importlib.util
 import json
+import re
 import sys
 import threading
-import time
 import types
 
+# The host runtime is not a test dependency; only notification behavior is under test.
 sys.modules['toolsets'] = types.SimpleNamespace(create_custom_toolset=lambda *args, **kwargs: None)
 
 spec = importlib.util.spec_from_file_location('clanker_plugin', sys.argv[1])
 plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)
 
+# Run the actual watcher deterministically through a bounded number of polls.
+poll_budget = 0
+
+
+class PollEvent:
+    def __init__(self):
+        self.polls = 0
+        self.stopped = False
+
+    def wait(self, _timeout=None):
+        if self.stopped or self.polls >= poll_budget:
+            return True
+        self.polls += 1
+        return False
+
+    def set(self):
+        self.stopped = True
+
+
+class InlineThread:
+    def __init__(self, target, **_kwargs):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+
+plugin.threading = types.SimpleNamespace(Event=PollEvent, Thread=InlineThread, Lock=threading.Lock)
+
 
 class Context:
-    def __init__(self):
+    def __init__(self, statuses=None):
         self.hooks, self.commands, self.posts = {}, {}, []
         self.done = threading.Event()
         self.calls = 0
+        self.statuses = list(statuses or [{'latest': 5, 'unread': 1, 'unreadFirst': 5, 'private': 'REMOTE SECRET'}])
 
     def register_hook(self, name, callback):
         self.hooks[name] = callback
@@ -34,7 +65,8 @@ class Context:
             return {'ok': True, 'result': '[]'}
         assert tool == 'clanker_status'
         self.calls += 1
-        return {'ok': True, 'result': json.dumps({'latest': 5, 'unread': 1, 'private': 'REMOTE SECRET'})}
+        status = self.statuses[min(self.calls - 1, len(self.statuses) - 1)]
+        return {'ok': True, 'result': json.dumps(status)}
 
     def post_message(self, text):
         assert 'REMOTE SECRET' not in text
@@ -43,16 +75,25 @@ class Context:
         return type('Posted', (), {'ok': True})()
 
     def inject_message(self, *_, **__):
-        raise AssertionError('A display-only post must not start a model turn')
+        raise AssertionError('A routine notice must not start a model turn')
 
 
-ctx = Context()
+statuses = [
+    {'latest': 5, 'unread': 2, 'unreadFirst': 4, 'private': 'REMOTE SECRET'},
+    {'latest': 5, 'unread': 2, 'unreadFirst': 4},
+    {'latest': 6, 'unread': 2, 'unreadFirst': 4},
+    {'latest': 7, 'unread': 1, 'unreadFirst': 7},
+    {'latest': 7, 'unread': 0, 'unreadFirst': 0},
+    {'latest': 8, 'unread': 1, 'unreadFirst': 8},
+]
+poll_budget = len(statuses)
+ctx = Context(statuses)
 plugin.register(ctx)
 try:
     ctx.hooks['on_session_start'](session_id='test-session')
-    assert ctx.done.wait(3.5), 'No notice was posted'
-    time.sleep(2.2)
-    assert ctx.calls >= 2 and len(ctx.posts) == 1, 'Notice was duplicated'
+    counts = [int(re.findall(r'\d+', post)[0]) for post in ctx.posts]
+    assert counts == [2, 1, 1], 'Unread boundary, rearm, or count failed'
+    assert all('REMOTE SECRET' not in post for post in ctx.posts)
 finally:
     ctx.cleanup()
 remote = Context()
@@ -61,7 +102,7 @@ plugin.register(remote)
 remote.hooks['on_session_start'](session_id='not-a-local-chat')
 assert remote.calls == 0 and not remote.posts
 remote.cleanup()
-print('Hermes JSON-text status, display-only routing, deduplication and cleanup passed')
+print('Hermes status boundaries, count-only display, non-injection and cleanup passed')
 
 
 class DiscussionContext(Context):
@@ -72,7 +113,7 @@ class DiscussionContext(Context):
     def call_mcp(self, server, tool, args, **_):
         if tool == 'clanker_discussion_work':
             return {'ok': True, 'result': json.dumps([{'id': '00000000-0000-4000-8000-000000000001', 'revision': 2, 'kind': 'turn', 'text': 'REMOTE SECRET'}])}
-        return {'ok': True, 'result': '{"latest":0,"unread":0}'}
+        return {'ok': True, 'result': '{"latest":0,"unread":0,"unreadFirst":0}'}
 
     def inject_message(self, text, session_key):
         assert 'REMOTE SECRET' not in text and 'clanker_discussion_next' in text
@@ -83,12 +124,13 @@ class DiscussionContext(Context):
 
 
 discussion = DiscussionContext()
+poll_budget = 3
 plugin.register(discussion)
 try:
     discussion.hooks['on_session_start'](session_id='discussion-session')
-    assert discussion.done.wait(3.5), 'Accepted discussion did not request a local turn'
-    time.sleep(2.2)
-    assert len(discussion.injections) == 1, 'The same work caused duplicate model wake-ups'
+    assert len(discussion.injections) == 1, 'Accepted discussion was not injected exactly once'
 finally:
     discussion.cleanup()
 print('Hermes accepted-discussion injection contains metadata only and is deduplicated')
+
+

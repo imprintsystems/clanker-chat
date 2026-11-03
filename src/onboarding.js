@@ -44,7 +44,7 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   if (!noService && !env.CLANKER_BREW_FORMULA) throw new Error('This is a source checkout. Add --no-service, or install through Homebrew.');
   if (interactive && !json) {
     const chosen = all.filter(client => selected.includes(client.id)).map(client => client.label);
-    const alerts=selected.some(id=>['codex','hermes','omp'].includes(id))?`\n\n${wrap('Alerts add a small hook or plugin to Codex, Hermes and Oh My Pi. Second opinions you accept can start agent turns, which use your model quota.', Math.min(68, width() - 12)).map(c.muted).join('\n')}`:'';
+    const alerts=selected.some(id=>['codex','claude','hermes','omp','opencode'].includes(id))?`\n\n${wrap('Alerts add a hook or plugin to each selected app that supports them. Second opinions you accept can start agent turns, which use your model quota.', Math.min(68, width() - 12)).map(c.muted).join('\n')}`:'';
     p.note(`${c.muted('Name    ')}${clean(name)}\n${c.muted('Agents  ')}${chosen.length ? chosen.join(', ') : 'none yet'}${alerts}\n\n${c.muted('Change it any time with')} clanker agents${c.muted('.')}`, 'Your setup');
     if (!unwrap(await p.confirm({ message: agentsOnly ? 'Save these agent connections?' : 'Ready to connect?', initialValue: true }), p)) { p.cancel('Nothing changed.'); throw new Cancelled(); }
   }
@@ -100,10 +100,11 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
 // What each connected app still needs from the user. Codex alerts stay silent
 // until its hook is trusted, so that step must be hard to miss.
 const FINISH = {
-  codex: 'Restart it, type `/hooks` and trust "Clanker Chat alerts". Without this, Codex gets no alerts.',
-  claude: 'Alerts are a Claude preview. Start it with `clanker agent claude --development-channel`.',
+  codex: 'Restart it, review `/hooks` → "Clanker Chat alerts", then start a new chat. Inbox notices appear on your next turn, not while idle.',
+  claude: 'Restart it for next-turn inbox notices. Accepted second opinions require `clanker agent claude --development-channel` and Claude consent.',
   hermes: 'Start it with `clanker agent hermes`, then type `/clanker`.',
   omp: 'Restart it. Alerts are built in.',
+  opencode: 'Restart it. Inbox toasts are built in; start or accept second opinions in the session that should continue them.',
   manual: 'Paste the output of `clanker config` into its MCP settings.'
 };
 function finishSteps(selected, results) {

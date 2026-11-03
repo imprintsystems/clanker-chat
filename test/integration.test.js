@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { localCall } from '../src/local.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { LoggingMessageNotificationSchema, ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { clientGrant, enableClient, disableClient } from '../src/access.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -126,8 +126,7 @@ test('MCP client discovers tools, reads an inbox, waits, and receives resource n
   const client = new Client({ name: 'integration-test', version: '1.0.0' });
   const transport = new StdioClientTransport({ command: process.execPath, args: [resolve('src/cli.js'), 'mcp'], env: { ...process.env, CLANKER_HOME: b.options.home }, stderr: 'pipe' });
   t.after(() => client.close());
-  let notices = 0; let resourceUpdates = 0;
-  client.setNotificationHandler(LoggingMessageNotificationSchema, () => { notices++; });
+  let resourceUpdates = 0;
   client.setNotificationHandler(ResourceUpdatedNotificationSchema, () => { resourceUpdates++; });
   await client.connect(transport);
   const tools = await client.listTools();
@@ -146,7 +145,7 @@ test('MCP client discovers tools, reads an inbox, waits, and receives resource n
   assert.equal(data(await client.callTool({ name: 'clanker_message', arguments: { id: preview.id } })).text, long);
   const inbox = await client.readResource({ uri: 'clanker://inbox' });
   assert.match(inbox.contents[0].text, /MCP notification proof/);
-  await until(() => notices > 0 && resourceUpdates > 0);
+  await until(() => resourceUpdates > 0);
   const sent = await client.callTool({ name: 'clanker_send', arguments: { to: 'Erik', text: 'Reply through MCP.' } });
   assert.equal(sent.isError, undefined);
   await until(() => a.store.list().length === 1);

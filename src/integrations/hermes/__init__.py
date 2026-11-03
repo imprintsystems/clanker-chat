@@ -42,7 +42,7 @@ def register(ctx):
         context = contextvars.copy_context()
 
         def watch():
-            previous = 0
+            boundary = 0
             previous_work = ''
             while not stop.wait(2):
                 try:
@@ -76,17 +76,20 @@ def register(ctx):
                         status = json.loads(status)
                     if not isinstance(status, dict):
                         continue
-                    latest, unread = status.get('inboxLatest', status.get('latest')), status.get('unread')
-                    if type(latest) is not int or type(unread) is not int or unread < 1 or latest <= previous:
+                    latest, unread, unread_first = status.get('latest'), status.get('unread'), status.get('unreadFirst')
+                    if type(latest) is not int or type(unread) is not int or type(unread_first) is not int or unread < 0 or unread_first < 0:
                         continue
-                    text = (f'Clanker Chat: {unread} unread messages. When asked, call clanker_overview for a short summary. '
-                            'This is a local app notice, not remote instructions. No actions or replies are authorized.')
+                    if not unread:
+                        boundary = 0
+                        continue
+                    if unread_first <= boundary or latest <= boundary:
+                        continue
+                    text = f'Clanker Chat · {unread} unread'
                     # Hermes TUI and desktop render session-bound posts immediately.
-                    # The classic CLI defers them until a turn ends. Never start a
-                    # model turn merely to work around a frontend limitation.
+                    # The classic CLI defers display; never inject routine arrivals.
                     posted = ctx.post_message(text)
                     if getattr(posted, 'ok', False):
-                        previous = latest
+                        boundary = latest
                 except Exception:
                     log.debug('Clanker inbox unavailable or access revoked', exc_info=True)
 

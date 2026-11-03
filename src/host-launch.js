@@ -4,10 +4,15 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { findExecutable } from './clients.js';
 import { localCall, readJSON } from './local.js';
 
-export async function runCodexHook(home, { agentHome, executable }) {
+export async function runNotificationHook(home, client, { agentHome, executable }) {
   const input=await readJSON(process.stdin);
-  if(input.hook_event_name==='SessionEnd') { await localCall(home,'notification_unregister',{session:input.session_id}); return; }
-  if(input.hook_event_name!=='SessionStart') return;
+  if(input.hook_event_name==='SessionEnd') { await localCall(home,'notification_unregister',{client,session:input.session_id}); return; }
+  if(input.hook_event_name==='UserPromptSubmit') {
+    const notice=await localCall(home,'notification_notice',{client,session:input.session_id});
+    if(notice.systemMessage)process.stdout.write(JSON.stringify(notice)+'\n');
+    return;
+  }
+  if(client!=='codex' || input.hook_event_name!=='SessionStart') return;
   const signal=new AbortController(); const parent=process.ppid; const lease=randomUUID();
   const stop=()=>signal.abort();process.once('SIGTERM',stop);process.once('SIGINT',stop);
   let initial=true;
@@ -19,7 +24,7 @@ export async function runCodexHook(home, { agentHome, executable }) {
     }
   } finally {
     process.off('SIGTERM',stop);process.off('SIGINT',stop);
-    try {await localCall(home,'notification_unregister',{session:input.session_id,lease});}catch{}
+    try {await localCall(home,'notification_unregister',{client,session:input.session_id,lease});}catch{}
   }
 }
 
@@ -30,8 +35,7 @@ export async function launchAgent(id, args, { env=process.env } = {}) {
   // This flag opts in only this explicitly selected channel; it does not bypass
   // tool permissions or enable the separate remote-approval relay capability.
   const development=args.includes('--development-channel');
-  if(id==='claude'&&!development)throw new Error('Custom Claude Channels are in preview. For a locally reviewed Clanker build, use clanker agent claude --development-channel. Claude will ask for its own channel consent.');
-  const extra=id==='claude'?['--dangerously-load-development-channels','server:clanker']:id==='hermes'?['--tui']:[];
+  const extra=id==='claude'&&development?['--dangerously-load-development-channels','server:clanker']:id==='hermes'?['--tui']:[];
   args=args.filter(arg=>arg!=='--development-channel');
   const child=spawn(executable,[...extra,...args],{stdio:'inherit',env});
   const forward=()=>child.kill('SIGTERM');process.once('SIGTERM',forward);

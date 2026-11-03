@@ -11,7 +11,7 @@ import { endpoint, encodeInvite, decodeInvite, inviteLink, messageSchema, open, 
 import { socketPath, readJSON, json } from './local.js';
 import { authorizeClient, readAccessAsync } from './access.js';
 import { VERSION } from './version.js';
-import { CodexNotifications } from './notifications.js';
+import { Notifications } from './notifications.js';
 import { Discussions } from './discussions.js';
 import { Parties } from './parties.js';
 import { Bridges } from './bridges.js';
@@ -87,7 +87,7 @@ export class ClankerChat extends EventEmitter {
       });
       // Bridge activity wakes waiting agents but is not news for the user.
       this.bridges = new Bridges(this.store, { ...this.options.bridges, changed: () => { this.tick(); this.emit('bridge'); } });
-      this.notifications = new CodexNotifications(home, this.store, { ...this.options.notifications, discussions:this.discussions });
+      this.notifications = new Notifications(home, this.store, { ...this.options.notifications, discussions:this.discussions });
       this.updates = new Updates(this.store, { check: !!this.options.updateCheck, ...this.options.updates });
       this.upgraded = this.updates.start();
       this.remote = http.createServer((req, res) => this.remoteRequest(req, res));
@@ -204,7 +204,7 @@ export class ClankerChat extends EventEmitter {
       if (!this.store) return json(res, 503, { error: 'Daemon starting' });
       if (req.headers['x-clanker-origin'] === 'mcp') authorizeClient(this.options.home, req.headers['x-clanker-client'], req.headers['x-clanker-token'], await readAccessAsync(this.options.home));
       const input = commandSchema.parse(await readJSON(req));
-      if(req.headers['x-clanker-origin']==='mcp' && ['notification_register','notification_unregister','notifications'].includes(input.command))throw new Error('Session alert registrations are managed by the local user, not MCP tools.');
+      if(req.headers['x-clanker-origin']==='mcp' && ['notification_register','notification_unregister','notification_notice','notifications'].includes(input.command))throw new Error('Session alert hooks are managed by the local user, not MCP tools.');
       // An answer to a bridge question may look things up, never ask back, send or decide.
       if (req.headers['x-clanker-run']) {
         if (!READ_ONLY.includes(input.command)) throw new Error('This is an answer to a bridge question, so it can only read. Put everything into the answer itself; it cannot ask back, send messages or make decisions.');
@@ -235,7 +235,8 @@ export class ClankerChat extends EventEmitter {
         return result;
       }
       case 'notification_register': return this.notifications.register(args);
-      case 'notification_unregister': return this.notifications.unregister(args.session,args.lease);
+      case 'notification_unregister': return this.notifications.unregister(args);
+      case 'notification_notice': return this.notifications.notice(args);
       case 'notifications': return this.notifications.status();
       case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION, discovery: this.discovery.status(), encryptionKeySince: this.keys.statement().from };
       case 'overview': { const consume = args.consume !== false; return overview(this.store, this.discussions, { online: this.endpointReady, update: this.updates.notice(consume), bridges: this.bridges.overview(consume) }); }

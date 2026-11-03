@@ -39,7 +39,7 @@ async function main() {
     else { const { showHome } = await import('./onboarding.js'); command = await showHome(home); if (!command) return; }
   }
   if (command === 'mcp') { const { serveMCP } = await import('./mcp.js'); return serveMCP(home); }
-  if(command==='notify' && target==='codex') {const {runCodexHook}=await import('./host-launch.js');await runCodexHook(home,{agentHome:values['agent-home'],executable:values['agent-bin']});return;}
+  if(command==='notify' && ['codex','claude'].includes(target)) {const {runNotificationHook}=await import('./host-launch.js');await runNotificationHook(home,target,{agentHome:values['agent-home'],executable:values['agent-bin']});return;}
   if (command === 'notifications') {
     const alerts = await localCall(home, 'notifications');
     if (values.json) return console.log(JSON.stringify(alerts, null, 2));

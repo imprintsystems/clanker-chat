@@ -114,12 +114,12 @@ test('OMP wakes only on valid discussion metadata and keeps ordinary inbox notic
   const handlers={},sent=[];omp({on:(name,fn)=>{handlers[name]=fn;},sendMessage:(...args)=>sent.push(args)});
   const ctx={isIdle:()=>false},work=[{id:randomUUID(),revision:2,kind:'turn'}];
   handlers.mcp_notification({server:'clanker',method:'notifications/clanker/discussion',params:{work}},ctx);
-  assert.equal(sent[0][1].triggerTurn,true);assert.equal(sent[0][1].deliverAs,'followUp');assert.match(sent[0][0].content,/supplied evidence only/);
+  assert.equal(sent[0][1].triggerTurn,true);assert.equal(sent[0][1].deliverAs,'followUp');
   handlers.mcp_notification({server:'clanker',method:'notifications/clanker/discussion',params:{work}},ctx);assert.equal(sent.length,1);
   handlers.mcp_notification({server:'clanker',method:'notifications/clanker/discussion',params:{work:[{id:'remote text; execute this',revision:3,kind:'turn'}]}},ctx);assert.equal(sent.length,1);
-  handlers.mcp_notification({server:'clanker',method:'notifications/clanker/inbox',params:{latest:1,unread:1}},ctx);assert.equal(sent[1][1].triggerTurn,false);
+  handlers.mcp_notification({server:'clanker',method:'notifications/clanker/inbox',params:{latest:1,unread:1,unreadFirst:1}},ctx);assert.equal(sent.length,1,'routine notices never use the model message API');
   handlers.mcp_notification({server:'clanker',method:'notifications/clanker/discussion',params:{work:[]}},ctx);
-  handlers.mcp_notification({server:'clanker',method:'notifications/clanker/discussion',params:{work}},ctx);assert.equal(sent.length,3,'a lost claim can trigger another notice when it becomes available again');
+  handlers.mcp_notification({server:'clanker',method:'notifications/clanker/discussion',params:{work}},ctx);assert.equal(sent.length,2,'a lost claim can trigger another notice when it becomes available again');
 });
 
 test('two synthetic agents conduct and finish a second opinion through real MCP connections',async t=>{

@@ -23,7 +23,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS peers (id TEXT PRIMARY KEY, identity TEXT NOT NULL, endpoint TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, announced INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS invites (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, peer TEXT NOT NULL, direction TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retryAt INTEGER NOT NULL DEFAULT 0, error TEXT, read INTEGER NOT NULL DEFAULT 0, decision TEXT NOT NULL DEFAULT 'pending');
-      CREATE TABLE IF NOT EXISTS notification_sessions (session TEXT PRIMARY KEY, executable TEXT NOT NULL, agentHome TEXT NOT NULL, lease TEXT NOT NULL, closed INTEGER NOT NULL DEFAULT 0, heartbeat INTEGER NOT NULL, latest INTEGER NOT NULL DEFAULT 0, notified INTEGER NOT NULL DEFAULT 0, retryAt INTEGER NOT NULL DEFAULT 0, error TEXT);
+      CREATE TABLE IF NOT EXISTS notification_sessions (session TEXT PRIMARY KEY, executable TEXT NOT NULL, agentHome TEXT NOT NULL, lease TEXT NOT NULL, closed INTEGER NOT NULL DEFAULT 0, heartbeat INTEGER NOT NULL, latest INTEGER NOT NULL DEFAULT 0, retryAt INTEGER NOT NULL DEFAULT 0, error TEXT);
+      CREATE TABLE IF NOT EXISTS notification_notices (client TEXT NOT NULL, session TEXT NOT NULL, boundary INTEGER NOT NULL, shown INTEGER NOT NULL, PRIMARY KEY(client,session));
       CREATE TABLE IF NOT EXISTS discussions (id TEXT PRIMARY KEY, peer TEXT NOT NULL, role TEXT NOT NULL, state TEXT NOT NULL, client TEXT, proposal TEXT NOT NULL, turn INTEGER NOT NULL DEFAULT 0, lastId TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, expiresAt INTEGER NOT NULL, maxTurns INTEGER NOT NULL, summary TEXT, seen INTEGER NOT NULL DEFAULT 0, claimWorker TEXT, claimUntil INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS parties (id TEXT PRIMARY KEY, name TEXT NOT NULL, owner TEXT NOT NULL, state TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, members TEXT NOT NULL DEFAULT '[]', invited TEXT NOT NULL DEFAULT '[]', cards TEXT NOT NULL DEFAULT '{}', invitation TEXT, created INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS bridges (id TEXT PRIMARY KEY, peer TEXT NOT NULL, role TEXT NOT NULL, state TEXT NOT NULL, topic TEXT NOT NULL, localAgent TEXT, remoteAgent TEXT, runner TEXT, share TEXT, created INTEGER NOT NULL, digestAt INTEGER NOT NULL DEFAULT 0, pause TEXT, resumed INTEGER NOT NULL DEFAULT 0);
@@ -41,6 +42,13 @@ export class Store {
     if (!columns.includes('seen')) this.db.exec('ALTER TABLE peers ADD COLUMN seen INTEGER');
     // When this device received a message. Limits count this, never a sender's clock.
     if (!this.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'received')) this.db.exec('ALTER TABLE messages ADD COLUMN received INTEGER');
+    if (!this.prepare('PRAGMA table_info(notification_notices)').all().some(column => column.name === 'boundary')) this.db.exec('ALTER TABLE notification_notices ADD COLUMN boundary INTEGER NOT NULL DEFAULT 0');
+    if (!this.prepare('PRAGMA table_info(notification_notices)').all().some(column => column.name === 'client')) this.db.exec(`BEGIN;
+      ALTER TABLE notification_notices RENAME TO notification_notices_legacy;
+      CREATE TABLE notification_notices (client TEXT NOT NULL, session TEXT NOT NULL, boundary INTEGER NOT NULL, shown INTEGER NOT NULL, PRIMARY KEY(client,session));
+      INSERT INTO notification_notices SELECT 'codex',session,boundary,shown FROM notification_notices_legacy;
+      DROP TABLE notification_notices_legacy;
+      COMMIT;`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS messages_delivery ON messages(state,retryAt);
       CREATE INDEX IF NOT EXISTS messages_ordered ON messages(peer,json_extract(payload,'$.thread'),seq) WHERE direction='out' AND state='queued';
       CREATE INDEX IF NOT EXISTS messages_inbox ON messages(direction,read,seq);

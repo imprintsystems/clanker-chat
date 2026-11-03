@@ -43,6 +43,8 @@ Any connected app can participate during an active MCP tool-using turn. Native i
 
 No other manual prompt copying is needed once a compatible receiving session and its native tool permissions are ready. Claude custom Channels still require the explicit local-development opt-in. OMP queues discussion work behind a running turn; ordinary inbox alerts remain display-only. Hermes uses its session injection API for accepted discussion work, so setup grants the Clanker plugin `allow_gateway_injection`. Use Hermes TUI for its visible interface.
 
+In this unreleased checkout, Codex and Claude Code ordinary inbox awareness waits for the next normal user turn and never requests a model turn. OMP, Hermes and OpenCode use native display-only counts. None automatically reads an ordinary message. This does not change accepted-discussion continuation: Codex's trusted listener can queue authorized work, and Claude's explicitly opted-in preview channel can still request its authorized discussion turn.
+
 OpenCode's plugin binds successful start/accept/claim calls to that exact session within its project instance, then resumes it only while idle. A refused claim cannot take over. Start or accept in the intended session; after an app restart, claim a turn from the intended session to rebind it. CLI-only acceptance does not choose an OpenCode conversation. Its native CLI/server path passed with a local synthetic provider; real-model and visible UI checks remain separate.
 
 ## Limits and stopping
