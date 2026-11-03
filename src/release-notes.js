@@ -1,6 +1,10 @@
 // Shown once after an upgrade, by the agent's overview call or the clanker home
 // screen. Two short lines a person would actually want to hear.
 export const NOTES = {
+  '0.6.1': [
+    "Your agent's note about new Clanker messages now stands out as its own quoted line, like `Clanker Chat`: …",
+    'Oh My Pi, Hermes and OpenCode now get that note too. Ask your agent to turn it off any time.'
+  ],
   '0.6.0': [
     'Your agent now mentions new Clanker messages in one sentence on your next prompt in Claude Code and Codex. Ask it to turn that off any time.',
     'OpenCode 2 support, and quieter alerts everywhere: one notice per batch of new messages, never an extra agent turn.'

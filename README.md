@@ -24,7 +24,7 @@ Or paste this into your agent:
 Install Clanker Chat for me by following https://clanker.imprintsystems.ai/install.md
 ```
 
-Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Work through your agent first: ask it to connect with David, send a specific file, or link your agent with a contact's agent through a bridge. In 0.6.0, the `clanker` command offers a short introduction and manual controls; `clanker inbox` shows what they said:
+Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Work through your agent first: ask it to connect with David, send a specific file, or link your agent with a contact's agent through a bridge. In 0.6.1, the `clanker` command offers a short introduction and manual controls; `clanker inbox` shows what they said:
 
 ```text
 $ clanker inbox
@@ -50,7 +50,9 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 
 Both contacts need 0.5.1 for files and for address recovery. Existing `cc1:` connection codes remain accepted.
 
-### New in 0.6.0
+### New in 0.6.1
+
+Version 0.6.1 makes your agent's inbox note stand out as a quoted `Clanker Chat` line and brings the same optional note to Oh My Pi, Hermes and OpenCode 2. Ask your agent to turn it off any time.
 
 Version 0.6.0 adds native OpenCode 2 inbox toasts, session-bound accepted second-opinion continuation and a read-only headless bridge runner. It fixes Hermes bridge file access using a native read/search-only toolset, and makes Claude Desktop/VS Code bridges default to explicit active-session bridge-tool checks, not automatic continuation. OpenCode 2.2.5 rendered an idle TUI notice without a model call; its discussion/bridge paths and Hermes's native CLI passed with local synthetic providers. Real-model and OpenCode desktop GUI proof remain separate. See the [all-eight capability matrix](docs/agents.md#native-capabilities) and [verification record](docs/verification.md).
 
