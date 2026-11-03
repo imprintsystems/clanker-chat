@@ -1,10 +1,16 @@
 import { localCall } from '../local.js';
+import { inboxNoteRpc, noteConnectionKey } from './opencode-note.js';
 
-// OpenCode 2 TUI plugin: metadata-only notices, with no model/session mutation.
-// The public TUI API has no normal-prompt submission hook; do not replace its
-// composer/keybindings or turn a toast into a session.prompt fallback.
+// OpenCode 2 TUI plugin: count-only notices. Only a displayed boundary crosses
+// the location-scoped host RPC; previews are fetched by the server on owner work.
 export default function clankerToasts(ctx, connection) {
   let boundary = 0, polling = false, stopped = false;
+  const signalDisplay = async value => {
+    try {
+      await ctx.client.rpc(inboxNoteRpc).displayed({ boundary: value, connection: noteConnectionKey(connection) },
+        { location: ctx.location ?? ctx.data.location.default(), signal: AbortSignal.timeout(500) });
+    } catch { /* A missing/offline server never prevents native count notices. */ }
+  };
   const dispose = () => { stopped = true; clearInterval(timer); };
   const poll = async () => {
     if (polling || stopped) return;
@@ -14,10 +20,11 @@ export default function clankerToasts(ctx, connection) {
       if (stopped) return;
       const { latest, unread, unreadFirst } = status;
       if (!Number.isSafeInteger(latest) || !Number.isSafeInteger(unread) || !Number.isSafeInteger(unreadFirst) || unread < 0 || unreadFirst < 0) return;
-      if (!unread) { boundary = 0; return; }
+      if (!unread) { if (boundary) await signalDisplay(0); boundary = 0; return; }
       if (unreadFirst <= boundary || latest <= boundary) return;
       ctx.ui.toast.show({ message: `Clanker Chat · ${unread} unread`, variant: 'info', duration: 10000 });
       boundary = latest;
+      await signalDisplay(latest);
     } catch (error) {
       if (error.message?.startsWith('This agent is not connected to Clanker Chat.')) dispose();
     } finally { polling = false; }

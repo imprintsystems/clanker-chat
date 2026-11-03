@@ -1,12 +1,12 @@
 import { localCall } from '../local.js';
 import { discussionNotice } from '../discussions.js';
+import { setupInboxNote } from './opencode-note.js';
 
-// OpenCode 2 server plugin. Ordinary arrivals belong to the display-only TUI part.
-// V2 prompt admission also runs for programmatic session.prompt calls and exposes
-// no trusted user-origin field; context hooks also run on tool continuations.
-// Keep ordinary inbox context out rather than inject it into a non-user request.
+// OpenCode 2 server plugin. TUI arrivals remain count-only; eligible owner
+// admissions receive hidden context on their existing first model request.
 export default async function clankerDiscussions(ctx, connection) {
   if (process.env.CLANKER_BRIDGE_RUN) return () => {};
+  const stopNotes = await setupInboxNote(ctx, connection);
   const bindings = new Map(), sessions = new Set(), busy = new Set(), delivered = new Map();
   const controller = new AbortController();
   let polling = false, stopped = false;
@@ -46,7 +46,7 @@ export default async function clankerDiscussions(ctx, connection) {
   };
   const timer = setInterval(poll, 2000);
   timer.unref?.();
-  const dispose = () => { stopped = true; clearInterval(timer); controller.abort(); bindings.clear(); sessions.clear(); busy.clear(); delivered.clear(); };
+  const dispose = () => { stopped = true; clearInterval(timer); controller.abort(); stopNotes(); bindings.clear(); sessions.clear(); busy.clear(); delivered.clear(); };
   await ctx.tool.hook('execute.after', async event => {
     if (stopped || event.status !== 'completed' || !['clanker_clanker_discussion_start', 'clanker_clanker_discussion_accept', 'clanker_clanker_discussion_next'].includes(event.tool)) return;
     try {

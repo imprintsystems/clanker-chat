@@ -39,10 +39,20 @@ export function installNotifications(client, launch, home, { remove=false, write
   const modules = process.env.CLANKER_BREW_FORMULA && launch.command === process.env.CLANKER_EXECUTABLE
     ? resolve(launch.command, '../../libexec/src/integrations') : assets;
   if (client.id === 'omp') {
-    const contents = `import setup from ${JSON.stringify(pathToFileURL(join(modules, 'omp.js')).href)};\nexport default pi => setup(pi);\n`;
+    const connection = { home, id: 'omp', token: launch.env.CLANKER_CLIENT_TOKEN };
+    const contents = `import setup from ${JSON.stringify(pathToFileURL(join(modules, 'omp.js')).href)};\nexport default pi => setup(pi, ${JSON.stringify(connection)});\n`;
     managedFile(join(dirname(client.file),'extensions/clanker-chat.js'),contents,home,client,remove,write);
   }
-  if (client.id === 'hermes') for (const name of ['plugin.yaml','__init__.py']) managedFile(join(dirname(client.file),'plugins/clanker-chat',name),readFileSync(join(assets,'hermes',name),'utf8'),home,client,remove,write);
+  if (client.id === 'hermes') {
+    const directory = join(dirname(client.file), 'plugins/clanker-chat');
+    for (const name of ['plugin.yaml','__init__.py']) managedFile(join(directory,name),readFileSync(join(assets,'hermes',name),'utf8'),home,client,remove,write);
+    const connection = { home, id: 'hermes', token: launch.env.CLANKER_CLIENT_TOKEN };
+    managedFile(join(directory,'connection.json'),JSON.stringify(connection,null,2)+'\n',home,client,remove,write);
+    if (remove) {
+      try { rmdirSync(directory); }
+      catch (error) { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error; }
+    }
+  }
   if (client.id === 'opencode') {
     const connection = { home, id: 'opencode', token: launch.env.CLANKER_CLIENT_TOKEN };
     for (const [entry, source, id] of [['index.js', 'opencode.js', 'clanker-chat'], ['tui.js', 'opencode-tui.js', 'clanker-chat.tui']]) {

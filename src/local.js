@@ -17,18 +17,21 @@ export function json(response, status, value) {
 }
 // Inside an answer to a bridge question, every local call says so, and the
 // daemon lets it only read: an answer cannot ask back or start other work.
-export function localCall(home, command, args = {}, client) {
+export function localCall(home, command, args = {}, client, { timeout = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
     const headers = { 'content-type': 'application/json', ...(process.env.CLANKER_BRIDGE_RUN ? { 'x-clanker-run': process.env.CLANKER_BRIDGE_RUN } : {}), ...(client ? { 'x-clanker-origin': 'mcp', 'x-clanker-client': client.id || '', 'x-clanker-token': client.token || '', ...(client.worker ? { 'x-clanker-worker':client.worker } : {}) } : {}) };
-    const request = http.request({ socketPath: socketPath(home), path: '/local', method: 'POST', headers, timeout: 30_000 }, async response => {
+    const request = http.request({ socketPath: socketPath(home), path: '/local', method: 'POST', headers }, async response => {
       try {
         const value = await readJSON(response);
         if (response.statusCode !== 200) reject(new Error(value.error || 'Local request failed'));
         else resolve(value);
       } catch (error) { reject(error); }
     });
+    // A wall-clock deadline also bounds stalled/dribbling responses, rather than
+    // merely timing out an idle socket. Destroying the request cancels its I/O.
+    const timer = setTimeout(() => request.destroy(new Error('Local request timed out')), timeout);
+    request.on('close', () => clearTimeout(timer));
     request.on('error', reject);
-    request.on('timeout', () => request.destroy(new Error('Local request timed out')));
     request.end(JSON.stringify({ command, args }));
   });
 }

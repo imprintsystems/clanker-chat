@@ -7,6 +7,7 @@ import { parse } from 'jsonc-parser';
 import { parse as yaml } from 'yaml';
 import { discoverClients, applyClientSelection, configureClient, refreshClients } from '../src/clients.js';
 import { readAccess, authorizeClient, clientGrant, enableClient } from '../src/access.js';
+import { createHash } from 'node:crypto';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'cc-config-')); t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -76,6 +77,58 @@ test('Hermes YAML comments, models and other MCP servers survive connection, upd
   const final = yaml(readFileSync(hermes.file, 'utf8')); assert.equal(final.mcp_servers.clanker, undefined); assert.equal(final.model, 'hermes-model');
   assert.ok(existsSync(join(home, 'backups/hermes')));
 });
+test('Hermes refresh migrates count-only plugins with a private live credential and removes only managed files', t => {
+  const { home, clients, launch } = fixture(t), client = clients.find(item => item.id === 'hermes');
+  assert.equal(applyClientSelection(home, ['hermes'], launch, [client])[0].state, 'connected');
+  const directory = join(dirname(client.file), 'plugins/clanker-chat');
+  const connection = join(directory, 'connection.json'), source = join(directory, '__init__.py');
+  const manifest = join(directory, 'plugin.yaml'), registry = join(home, 'integrations.json');
+  const credential = yaml(readFileSync(client.file, 'utf8')).mcp_servers.clanker.env.CLANKER_CLIENT_TOKEN;
+  const initial = readFileSync(source, 'utf8'), initialManifest = readFileSync(manifest, 'utf8');
+  assert.deepEqual(JSON.parse(readFileSync(connection, 'utf8')), { home, id: 'hermes', token: credential });
+  assert.equal(statSync(connection).mode & 0o777, 0o600);
+  assert.equal(statSync(directory).mode & 0o777, 0o700);
+  assert.ok(yaml(initialManifest).provides_hooks.includes('pre_llm_call'));
+  // Simulate the registered previous release: no connection file or owner hook.
+  const legacy = '# Managed by Clanker Chat.\ndef register(ctx):\n    pass\n';
+  writeFileSync(source, legacy); rmSync(connection);
+  const hashes = JSON.parse(readFileSync(registry, 'utf8'));
+  hashes[source] = createHash('sha256').update(legacy).digest('hex'); delete hashes[connection];
+  writeFileSync(registry, JSON.stringify(hashes));
+  assert.equal(refreshClients(home, launch, [client])[0].state, 'refreshed');
+  assert.equal(readFileSync(source, 'utf8'), initial);
+  assert.equal(readFileSync(manifest, 'utf8'), initialManifest);
+  assert.deepEqual(JSON.parse(readFileSync(connection, 'utf8')), { home, id: 'hermes', token: credential });
+  authorizeClient(home, 'hermes', credential);
+  // Refresh rewrites a managed stale credential using the current MCP grant.
+  const stale = JSON.stringify({ home, id: 'hermes', token: 'obsolete-test-credential' }) + '\n';
+  writeFileSync(connection, stale);
+  const refreshedHashes = JSON.parse(readFileSync(registry, 'utf8'));
+  refreshedHashes[connection] = createHash('sha256').update(stale).digest('hex');
+  writeFileSync(registry, JSON.stringify(refreshedHashes));
+  assert.equal(refreshClients(home, launch, [client])[0].state, 'refreshed');
+  const current = readFileSync(connection, 'utf8');
+  assert.equal(JSON.parse(current).token, credential);
+  assert.equal(statSync(connection).mode & 0o777, 0o600);
+  // Owner edits to the private wiring remain protected, like all managed assets.
+  const edited = current + ' '; writeFileSync(connection, edited);
+  assert.equal(refreshClients(home, launch, [client])[0].state, 'error');
+  assert.equal(readFileSync(connection, 'utf8'), edited);
+  authorizeClient(home, 'hermes', credential);
+  writeFileSync(connection, current);
+  const unrelated = join(directory, 'owner-file.txt'); writeFileSync(unrelated, 'keep\n');
+  assert.equal(applyClientSelection(home, [], launch, [client])[0].state, 'disconnected');
+  for (const file of [connection, source, manifest]) {
+    assert.equal(existsSync(file), false);
+    assert.equal(JSON.parse(readFileSync(registry, 'utf8'))[file], undefined);
+  }
+  assert.equal(readFileSync(unrelated, 'utf8'), 'keep\n');
+  assert.throws(() => authorizeClient(home, 'hermes', credential), /not connected/);
+  assert.equal(applyClientSelection(home, ['hermes'], launch, [client])[0].state, 'connected');
+  rmSync(unrelated);
+  assert.equal(applyClientSelection(home, [], launch, [client])[0].state, 'disconnected');
+  assert.equal(existsSync(directory), false, 'An empty managed plugin package must not remain discoverable');
+});
 test('OMP, Claude, Cursor and VS Code JSON preserve comments and unrelated entries', t => {
   const { home, clients, launch, save } = fixture(t);
   for (const id of ['omp', 'claude', 'claude-desktop', 'cursor', 'vscode']) {
@@ -90,6 +143,37 @@ test('OMP, Claude, Cursor and VS Code JSON preserve comments and unrelated entri
     if (['omp', 'cursor', 'vscode'].includes(id)) assert.equal(entry.type, 'stdio', id);
     if (id === 'omp') assert.deepEqual(config.disabledServers, ['other']);
   }
+});
+
+test('OMP refresh migrates the managed legacy wrapper with the existing credential and protects edits', t => {
+  const { home, clients, launch } = fixture(t),client=clients.find(item=>item.id==='omp');
+  assert.equal(applyClientSelection(home,['omp'],launch,[client])[0].state,'connected');
+  const wrapper=join(dirname(client.file),'extensions/clanker-chat.js'),registry=join(home,'integrations.json');
+  const initial=readFileSync(wrapper,'utf8'),credential=parse(readFileSync(client.file,'utf8')).mcpServers.clanker.env.CLANKER_CLIENT_TOKEN;
+  const legacy=`${initial.split('\n')[0]}\nexport default pi => setup(pi);\n`;
+  writeFileSync(wrapper,legacy);
+  const hashes=JSON.parse(readFileSync(registry,'utf8'));
+  hashes[wrapper]=createHash('sha256').update(legacy).digest('hex');
+  writeFileSync(registry,JSON.stringify(hashes));
+  assert.equal(refreshClients(home,launch,[client])[0].state,'refreshed');
+  const migrated=readFileSync(wrapper,'utf8');
+  assert.equal(migrated,initial);
+  assert.ok(migrated.includes(JSON.stringify({home,id:'omp',token:credential})));
+  assert.equal(parse(readFileSync(client.file,'utf8')).mcpServers.clanker.env.CLANKER_CLIENT_TOKEN,credential);
+  assert.equal(readAccess(home).clients.omp.token,credential);
+  assert.equal(statSync(wrapper).mode & 0o777,0o600);
+  const backup=join(home,'backups/omp',`${createHash('sha256').update(legacy).digest('hex')}.bak`);
+  assert.equal(readFileSync(backup,'utf8'),legacy);
+  const edited=`${migrated}// owner edit\n`;writeFileSync(wrapper,edited);
+  assert.equal(refreshClients(home,launch,[client])[0].state,'error');
+  assert.equal(readFileSync(wrapper,'utf8'),edited);
+  authorizeClient(home,'omp',credential);
+  writeFileSync(wrapper,migrated);
+  const unrelated=join(dirname(wrapper),'owner-extension.js');writeFileSync(unrelated,'// keep\n');
+  assert.equal(applyClientSelection(home,[],launch,[client])[0].state,'disconnected');
+  assert.equal(existsSync(wrapper),false);
+  assert.equal(readFileSync(unrelated,'utf8'),'// keep\n');
+  assert.equal(JSON.parse(readFileSync(registry,'utf8'))[wrapper],undefined);
 });
 
 test('refresh refuses an installed OpenCode 1 without migrating its working config or revoking its credential', t => {

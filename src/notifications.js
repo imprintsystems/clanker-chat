@@ -43,6 +43,13 @@ export class Notifications {
     if (!claimed.changes) return {};
     return { systemMessage: `Clanker Chat · ${unread} unread`, ...(additionalContext ? { additionalContext } : {}) };
   }
+  context(value, client) {
+    const { boundary } = z.object({ boundary: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict().parse(value);
+    const access = readAccess(this.home);
+    if (this.stopped || !access.agentNote || !access.clients[client]?.enabled) return {};
+    const additionalContext = inboxNote(this.store, boundary);
+    return additionalContext ? { additionalContext } : {};
+  }
   status() { return this.store.prepare('SELECT session,heartbeat,latest,error FROM notification_sessions WHERE closed=0 AND heartbeat>?').all(this.now()-35_000); }
   async tick() {
     if (this.stopped || this.busy) return this.busy;

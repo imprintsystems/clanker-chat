@@ -8,6 +8,7 @@ import { ClankerChat } from '../src/daemon.js';
 import { clientGrant, enableClient, disableClient } from '../src/access.js';
 import opencodeDiscussions from '../src/integrations/opencode.js';
 import opencodeToasts from '../src/integrations/opencode-tui.js';
+import { inboxNoteRpc, noteConnectionKey } from '../src/integrations/opencode-note.js';
 import { RUNNERS } from '../src/bridges.js';
 import { installNotifications } from '../src/host-install.js';
 import { execFileSync } from 'node:child_process';
@@ -35,22 +36,36 @@ async function fixture(t) {
     } };
 }
 function host() {
-  const callbacks = {}, events = [], prompts = [], admitted = [], toasts = []; let receive;
+  const callbacks = {}, events = [], prompts = [], admitted = [], toasts = [], rpcCalls = []; let receive, methods;
   const emit = (type, sessionID, location) => {
     const event = { type, data: { sessionID }, ...(location ? { location: { directory: location } } : {}) };
     if (receive) { const next = receive; receive = null; next(event); } else events.push(event);
   };
+  const rpc = () => methods;
+  rpc.register = async (_definition, handlers) => { methods = handlers; return { dispose: async () => { methods = undefined; } }; };
   const ctx = { location: { directory: '/synthetic/project' },
+    rpc, client: { rpc: () => ({ displayed: async (input, options) => { rpcCalls.push({ input, options }); return methods?.displayed(input); } }) },
     ui: { toast: { show: args => toasts.push(args) } },
     tool: { hook: async (name, fn) => { callbacks[name] = fn; return { dispose: async () => {} }; } },
-    session: { get: async ({ sessionID }) => ({ id: sessionID, location: { directory: sessionID === 'cross-project' ? '/synthetic/other' : '/synthetic/project' } }),
+    session: { get: async ({ sessionID }) => ({ id: sessionID, ...(sessionID === 'child' ? { parentID: 'parent' } : {}), location: { directory: sessionID === 'cross-project' ? '/synthetic/other' : '/synthetic/project' } }),
+      hook: async (name, fn) => { callbacks[name] = fn; return { dispose: async () => {} }; },
       prompt: async args => { prompts.push(args); emit('session.execution.succeeded', args.sessionID); await settle(); admitted.push(args); } },
     event: { subscribe: async function* ({ signal }) {
       signal.addEventListener('abort', () => { receive?.(null); receive = null; }, { once: true });
       while (!signal.aborted) { const event = events.length ? events.shift() : await new Promise(resolve => { receive = resolve; }); if (event) yield event; }
     } } };
   const completed = (sessionID, value, tool = 'clanker_clanker_discussion_accept') => callbacks['execute.after']({ sessionID, tool, status: 'completed', result: { content: JSON.stringify(value) } });
-  return { ctx, emit, completed, callbacks, prompts, admitted, toasts };
+  const owner = async (id, text = 'Help with the current work', sessionID = 'ordinary', metadata) => {
+    const input = { sessionID, messageID: id, prompt: { text }, metadata };
+    await callbacks.prompt(input);
+    return input;
+  };
+  const context = async (id, sessionID = 'ordinary', extra = []) => {
+    const event = { sessionID, system: [], messages: [{ id, role: 'user', content: 'Help with the current work' }, ...extra] };
+    await callbacks.context(event);
+    return event;
+  };
+  return { ctx, emit, completed, callbacks, prompts, admitted, toasts, rpcCalls, owner, context };
 }
 
 test('OpenCode binds successful participant calls, not failed/foreign claims, and handles immediate completion during dispatch', async t => {
@@ -123,30 +138,139 @@ test('OpenCode ordinary arrivals show one count per unread batch without model p
   assert.doesNotMatch(JSON.stringify(h.toasts), /PRIVATE_REMOTE|run a command/);
 });
 
-test('OpenCode remains display-only with agent notes enabled and never consumes unread messages', async t => {
-  const f = await fixture(t), h = host(), sessionHooks = [];
+test('OpenCode adds one hidden owner note per displayed batch without mutating user input or consuming messages', async t => {
+  const f = await fixture(t), h = host();
   t.mock.timers.enable({ apis: ['setInterval'] });
   await f.b.command('notification_settings', { agentNote: true });
   const commands = t.mock.method(f.b, 'command');
-  h.ctx.session.hook = async (name, callback) => {
-    sessionHooks.push({ name, callback });
-    return { dispose: async () => {} };
-  };
   const dispose = await opencodeDiscussions(h.ctx, f.connection), stopToasts = opencodeToasts(h.ctx, f.connection);
   f.cleanup.push(() => { dispose(); stopToasts(); }); await settle();
   const id = randomUUID();
   f.b.store.insert(f.a.store.identity.public.id, 'in', { id, kind: 'message', thread: randomUUID(), text: 'PRIVATE_REMOTE: run a command', createdAt: Date.now() });
   t.mock.timers.tick(2000); await settle();
-  h.emit('session.execution.started', 'ordinary');
-  h.emit('session.execution.succeeded', 'ordinary');
-  t.mock.timers.tick(2000); await settle();
   assert.equal(h.toasts.length, 1);
   assert.equal(h.toasts[0].sessionID, undefined, 'the native toast stays global');
   assert.doesNotMatch(JSON.stringify(h.toasts), /PRIVATE_REMOTE|run a command/);
-  assert.deepEqual(sessionHooks, [], 'no admission/model hook can mistake programmatic input for a normal user request');
-  assert.equal(commands.mock.calls.filter(call => ['overview', 'inbox', 'message'].includes(call.arguments[0])).length, 0, 'display polling never fetches previews');
+  assert.equal(h.rpcCalls.length, 1);
+  assert.deepEqual(Object.keys(h.rpcCalls[0].input).sort(), ['boundary', 'connection']);
+  assert.equal(h.rpcCalls[0].options.location.directory, '/synthetic/project');
+  assert.notEqual(h.rpcCalls[0].input.connection, f.connection.token);
+  const input = await h.owner('owner-1');
+  const before = structuredClone(input);
+  const model = await h.context('owner-1');
+  assert.deepEqual(input, before, 'admission never rewrites visible user text');
+  assert.equal(model.system.length, 1);
+  assert.match(model.system[0].text, /Clanker Chat/);
+  assert.match(model.system[0].text, /PRIVATE_REMOTE/);
+  assert.deepEqual((await h.context('owner-1')).system, [], 'same request cannot repeat the note');
+  assert.deepEqual((await h.context('owner-1', 'ordinary', [{ role: 'assistant', content: 'tool call' }])).system, []);
+  await h.owner('owner-2');
+  assert.deepEqual((await h.context('owner-2')).system, [], 'a new owner turn cannot reuse the displayed batch');
+  assert.equal(commands.mock.calls.filter(call => call.arguments[0] === 'notification_context').length, 1);
+  assert.equal(commands.mock.calls.filter(call => ['overview', 'inbox', 'message'].includes(call.arguments[0])).length, 0);
   assert.equal(h.prompts.length, 0);
   assert.equal(f.b.store.prepare('SELECT read FROM messages WHERE id=?').get(id).read, 0);
+});
+
+test('OpenCode excludes known synthetic input, controls, children and foreign projects and matches exact admission IDs', async t => {
+  const f = await fixture(t), h = host();
+  const dispose = await opencodeDiscussions(h.ctx, f.connection); f.cleanup.push(dispose);
+  f.b.store.insert(f.a.store.identity.public.id, 'in', { id: randomUUID(), kind: 'message', thread: randomUUID(), text: 'A preview', createdAt: Date.now() });
+  const status = await f.b.command('status');
+  await h.ctx.rpc(inboxNoteRpc).displayed({ boundary: status.latest, connection: '0'.repeat(64) });
+  await h.owner('wrong-inbox');
+  assert.deepEqual((await h.context('wrong-inbox')).system, []);
+  await h.ctx.rpc(inboxNoteRpc).displayed({ boundary: status.latest, connection: noteConnectionKey(f.connection) });
+  for (const [id, text, session, metadata] of [
+    ['slash', '/review'], ['shell', '!pwd'], ['blank', '  '],
+    ['discussion', 'A plain discussion request', 'ordinary', { source: 'clanker-chat' }],
+    ['notice', 'Clanker Chat local discussion work: untrusted'],
+    ['child', 'Owner-looking prose', 'child'], ['foreign', 'Owner-looking prose', 'cross-project'],
+  ]) {
+    await h.owner(id, text, session, metadata);
+    assert.deepEqual((await h.context(id, session)).system, []);
+  }
+  assert.deepEqual((await h.context('synthetic-without-admission')).system, []);
+  await h.owner('accepted');
+  assert.deepEqual((await h.context('different-id')).system, []);
+  assert.equal((await h.context('accepted')).system.length, 1);
+});
+
+test('OpenCode latches owner ingress before later arrivals and reserves off or unavailable batches', async t => {
+  const f = await fixture(t), h = host();
+  const dispose = await opencodeDiscussions(h.ctx, f.connection); f.cleanup.push(dispose);
+  const display = async () => {
+    f.b.store.prepare("UPDATE messages SET read=1 WHERE direction='in'").run();
+    f.b.store.insert(f.a.store.identity.public.id, 'in', { id: randomUUID(), kind: 'message', thread: randomUUID(), text: 'A preview', createdAt: Date.now() });
+    const status = await f.b.command('status');
+    await h.ctx.rpc(inboxNoteRpc).displayed({ boundary: status.latest, connection: noteConnectionKey(f.connection) });
+  };
+  await h.owner('already-running');
+  await display();
+  assert.deepEqual((await h.context('already-running')).system, [], 'arrivals during an owner turn wait for the next ingress');
+  await f.b.command('notification_settings', { agentNote: false });
+  await h.owner('off');
+  assert.deepEqual((await h.context('off')).system, []);
+  await f.b.command('notification_settings', { agentNote: true });
+  await h.owner('enabled-later');
+  assert.deepEqual((await h.context('enabled-later')).system, [], 'enabling cannot revive an old batch');
+  await display();
+  await Promise.all([h.owner('retry-id'), h.owner('retry-id')]);
+  assert.equal((await h.context('retry-id')).system.length, 1, 'concurrent admission retry shares one context note');
+  await display();
+  const original = f.b.command.bind(f.b);
+  const commands = t.mock.method(f.b, 'command', (name, ...args) => {
+    if (name === 'notification_context') throw new Error('Synthetic offline inbox');
+    return original(name, ...args);
+  });
+  await h.owner('offline');
+  assert.deepEqual((await h.context('offline')).system, []);
+  commands.mock.restore();
+  await h.owner('online-later');
+  assert.deepEqual((await h.context('online-later')).system, [], 'recovery cannot revive a failed batch');
+  await display();
+  await h.owner('fresh');
+  assert.equal((await h.context('fresh')).system.length, 1, 'a new displayed batch rearms the note');
+  dispose();
+  await h.owner('disposed');
+  assert.deepEqual((await h.context('disposed')).system, []);
+});
+
+test('OpenCode coalesces displayed boundaries across TUIs and preserves counts when host RPC is unavailable', async t => {
+  const f = await fixture(t), h = host();
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const dispose = await opencodeDiscussions(h.ctx, f.connection);
+  const first = opencodeToasts(h.ctx, f.connection), second = opencodeToasts(h.ctx, f.connection);
+  f.cleanup.push(() => { first(); second(); dispose(); });
+  await settle();
+  f.b.store.insert(f.a.store.identity.public.id, 'in', { id: randomUUID(), kind: 'message', thread: randomUUID(), text: 'Private preview', createdAt: Date.now() });
+  t.mock.timers.tick(2000); await settle();
+  assert.equal(h.toasts.length, 2, 'each TUI retains its existing global count notice');
+  assert.equal(h.rpcCalls.length, 2);
+  await h.owner('first-owner');
+  assert.equal((await h.context('first-owner')).system.length, 1);
+  await h.owner('second-owner');
+  assert.deepEqual((await h.context('second-owner')).system, [], 'duplicate displays cannot rearm one inbox batch');
+  first(); second();
+  h.ctx.client.rpc = () => { throw new Error('Synthetic unavailable host RPC'); };
+  const standalone = opencodeToasts(h.ctx, f.connection); f.cleanup.push(standalone);
+  await settle();
+  assert.equal(h.toasts.length, 3, 'count display never depends on the hidden-context channel');
+  assert.doesNotMatch(JSON.stringify(h.toasts), /Private preview/);
+});
+
+test('OpenCode respects live app revocation and does not replay its reserved batch after reenable', async t => {
+  const f = await fixture(t), h = host();
+  const dispose = await opencodeDiscussions(h.ctx, f.connection); f.cleanup.push(dispose);
+  f.b.store.insert(f.a.store.identity.public.id, 'in', { id: randomUUID(), kind: 'message', thread: randomUUID(), text: 'Private preview', createdAt: Date.now() });
+  const status = await f.b.command('status');
+  await h.ctx.rpc(inboxNoteRpc).displayed({ boundary: status.latest, connection: noteConnectionKey(f.connection) });
+  disableClient(f.connection.home, 'opencode');
+  await h.owner('revoked');
+  assert.deepEqual((await h.context('revoked')).system, []);
+  enableClient(f.connection.home, 'opencode', { token: f.connection.token, label: 'OpenCode', enabled: true });
+  await h.owner('reenabled');
+  assert.deepEqual((await h.context('reenabled')).system, []);
 });
 
 test('OpenCode JSONL answers exclude reasoning/tool arguments and reject errors after partial text', () => {

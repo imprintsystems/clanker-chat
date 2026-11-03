@@ -1,8 +1,9 @@
 name: clanker-chat
 version: 0.6.0
-description: Show Clanker Chat inbox alerts in the receiving session.
+description: Show Clanker Chat inbox alerts and next-owner-turn quoted notes in local sessions.
 api_version: 1
 provides_hooks:
+  - pre_llm_call
   - on_session_start
   - on_session_finalize
   - on_session_reset

@@ -19,6 +19,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { localCall } from '../src/local.js';
 import { codexAlertsInstalled } from '../src/host-install.js';
 import { parse } from 'jsonc-parser';
+import { createServer } from 'node:http';
 
 test('Codex routine arrivals use one notice and agent note per unread batch, not model queues', async t => {
   const home=mkdtempSync(join(tmpdir(),'cc-alerts-'));const store=new Store(home,'Synthetic');const calls=[];
@@ -110,6 +111,7 @@ test('all decision arrivals share sanitized previews, newest-first ordering and 
     store.insert(peer.identity.public.id,'in',{id:randomUUID(),thread:randomUUID(),createdAt:Date.now(),...payload});
     boundary=store.status().latest;
     const note=inboxNote(store,boundary),data=JSON.parse(note.split('\n')[2]),item=data.messages[0];
+    assert.ok(note.includes('> `Clanker Chat`: <one short sentence'));
     assert.equal(item.kind,label);assert.equal(item.from,'Dave');assert.match(item.preview,/^Checkout migration /);
     assert.equal(item.preview.length,100);assert.doesNotMatch(item.preview,/[\u0000-\u001f\u007f-\u009f]|(?:BEGIN|END) UNTRUSTED CLANKER CONTACT DATA|Evidence/);
     assert.deepEqual(data.messages.map(message=>message.kind),cases.slice(Math.max(0,index-2),index+1).reverse().map(value=>value.label));
@@ -237,8 +239,8 @@ test('the stdio MCP inbox-note tool controls actual Claude prompt-hook output', 
     child.stdin.end(JSON.stringify({hook_event_name:'UserPromptSubmit',session_id:session,prompt:'Synthetic local request'}));
   });
   const receive=text=>daemon.store.insert('untrusted-peer','in',{id:randomUUID(),text,kind:'message',thread:randomUUID(),createdAt:Date.now()});
-  assert.deepEqual(await call({}),{agentNote:true,appliesTo:['Claude Code','Codex']});
-  assert.deepEqual(await call({setting:'off'}),{agentNote:false,appliesTo:['Claude Code','Codex']});
+  assert.deepEqual(await call({}),{agentNote:true,appliesTo:['Claude Code','Codex','Oh My Pi','Hermes','OpenCode 2']});
+  assert.deepEqual(await call({setting:'off'}),{agentNote:false,appliesTo:['Claude Code','Codex','Oh My Pi','Hermes','OpenCode 2']});
   receive('Count-only batch');
   const countOnly=await hook();assert.ok(countOnly.systemMessage);assert.equal(countOnly.hookSpecificOutput,undefined);
   assert.equal(await hook(),null);
@@ -317,50 +319,210 @@ test('OMP displays one count per unread batch, rearms across missed zero and nev
   assert.deepEqual(messages,[]);
 });
 
-test('installed OMP wrapper stays display-only with agent notes on or off and never rewrites user text', async t => {
-  const home=mkdtempSync(join(tmpdir(),'cc-omp-display-')),store=new Store(home,'Synthetic');
-  t.after(()=>{store.close();rmSync(home,{recursive:true,force:true});});
+function ompHost(setup=ompNotifications, connection) {
+  const handlers={},messages=[],toasts=[];
+  setup({on:(event,fn)=>{handlers[event]=fn;},sendMessage:(...args)=>messages.push(args)},connection);
+  let session='owner-session',branch='root';
+  const ctx={agent:{kind:'main'},mode:'interactive',hasUI:true,ui:{notify:text=>toasts.push(text)},
+    sessionManager:{getSessionId:()=>session,getBranch:()=>[{id:branch}]}};
+  return {handlers,messages,toasts,ctx,
+    input:(text,source='interactive',context=ctx)=>handlers.input({text,source},context),
+    start:(prompt,context=ctx,reason='prompt')=>handlers.before_agent_start({prompt,reason},context),
+    emit:(params,context=ctx)=>handlers.mcp_notification({server:'clanker',method:'notifications/clanker/inbox',params},context),
+    branch:value=>{branch=value;},session:value=>{session=value;}};
+}
+
+async function ompSocket(t, respond=(_request,response)=>response.end(JSON.stringify({additionalContext:'Hidden inbox note'}))) {
+  const home=mkdtempSync(join(tmpdir(),'cc-omp-context-')),calls=[],sockets=new Set();
+  const server=createServer(async(request,response)=>{
+    let body='';for await(const chunk of request)body+=chunk;
+    calls.push({headers:request.headers,...JSON.parse(body)});
+    respond(request,response);
+  });
+  server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});
+  await new Promise(resolve=>server.listen(join(home,'daemon.sock'),resolve));
+  t.after(async()=>{for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));rmSync(home,{recursive:true,force:true});});
+  return {home,calls,sockets,host:ompHost(ompNotifications,{home,id:'omp',token:'existing-launch-token'})};
+}
+
+test('OMP binds one hidden note to eligible owner ingress, preserves text and reuses discarded preparation', async t => {
+  const {host:h,calls}=await ompSocket(t);
+  const params={latest:7,unread:2,unreadFirst:3};
+  h.input('submitted before the notice');
+  h.emit(params);
+  assert.equal(await h.start('submitted before the notice'),undefined,'a notice cannot attach retroactively');
+  h.branch('first-owner-persisted');
+  for(const text of ['', '  ', '/help', '.', 'c']) {
+    assert.equal(h.input(text),undefined);
+    assert.equal(await h.start(text),undefined);
+  }
+  for(const source of ['extension','synthetic','print'])h.input('not owner ingress',source);
+  assert.equal(await h.start('not owner ingress'),undefined);
+  const child={...h.ctx,agent:{kind:'subagent'}};
+  h.input('child request','interactive',child);
+  assert.equal(await h.start('child request',child),undefined);
+  const event={text:'  LOCAL OWNER TEXT  ',source:'interactive'};
+  assert.equal(h.handlers.input(event,h.ctx),undefined);
+  assert.equal(event.text,'  LOCAL OWNER TEXT  ','ingress never rewrites or replaces visible text');
+  assert.equal(await h.start('LOCAL OWNER TEXT',h.ctx,'revive'),undefined);
+  assert.equal(await h.start('unrelated synthetic prompt'),undefined);
+  const note=await h.start('LOCAL OWNER TEXT');
+  assert.deepEqual(note,{message:{customType:'clanker-inbox',content:'Hidden inbox note',display:false,attribution:'agent'}});
+  assert.deepEqual(await h.start('LOCAL OWNER TEXT'),note,'discarded preparation can return the same hidden message');
+  assert.equal(calls.length,1,'preparation retries share a bounded local request');
+  assert.deepEqual(calls[0].args,{boundary:7});assert.equal(calls[0].command,'notification_context');
+  assert.equal(calls[0].headers['x-clanker-client'],'omp');assert.equal(calls[0].headers['x-clanker-token'],'existing-launch-token');
+  h.branch('accepted-hidden-message');
+  assert.equal(await h.start('LOCAL OWNER TEXT'),undefined,'persisted branch cannot replay context for synthetic matching text');
+  h.handlers.agent_end({willContinue:false,awaitingAsyncWork:false},h.ctx);
+  h.input('next owner prompt','rpc');
+  assert.equal(await h.start('next owner prompt'),undefined);
+  h.emit({...params,latest:8,unread:3});
+  h.input('same unread batch');
+  assert.equal(await h.start('same unread batch'),undefined);
+  assert.equal(calls.length,1);assert.deepEqual(h.toasts,['Clanker Chat · 2 unread']);
+  assert.deepEqual(h.messages,[],'ordinary arrivals never invoke sendMessage or trigger a model turn');
+});
+
+test('OMP correlates combined queued inputs and preserves ingress across synthetic continuation lifecycle', async t => {
+  const {host:h,calls}=await ompSocket(t);
+  h.emit({latest:9,unread:1,unreadFirst:9});
+  h.input('first queued');h.input('second queued','rpc');
+  assert.equal(await h.start('synthetic extension work'),undefined);
+  h.handlers.agent_end({willContinue:true},h.ctx);
+  const note=await h.start('first queued\n\nsecond queued');
+  assert.ok(note?.message);
+  h.handlers.agent_end({awaitingAsyncWork:true},h.ctx);
+  assert.deepEqual(await h.start('first queued\n\nsecond queued'),note);
+  h.branch('persisted-combined-owner');
+  assert.equal(await h.start('first queued\n\nsecond queued'),undefined);
+  h.handlers.agent_end({},h.ctx);
+  h.input('later owner');assert.equal(await h.start('later owner'),undefined);
+  assert.equal(calls.length,1);
+  h.emit({latest:10,unread:1,unreadFirst:10});h.input('fresh batch');
+  assert.ok((await h.start('fresh batch'))?.message);
+  assert.deepEqual(calls.map(call=>call.args.boundary),[9,10]);
+});
+
+test('OMP resets marked inputs and cached preparations at session lifecycle boundaries', async t => {
+  const {host:h,calls}=await ompSocket(t);
+  const params={latest:5,unread:1,unreadFirst:5};
+  h.emit(params);h.input('old queued');
+  h.handlers.session_shutdown();
+  assert.equal(await h.start('old queued'),undefined);
+  h.emit(params);h.input('new session');assert.ok((await h.start('new session'))?.message);
+  h.handlers.session_start();
+  assert.equal(await h.start('new session'),undefined);
+  h.emit(params);h.input('changed session');
+  h.session('different-owner-session');
+  assert.equal(await h.start('changed session'),undefined);
+  h.emit(params);h.input('last owner');assert.ok((await h.start('last owner'))?.message);
+  assert.equal(calls.length,2);
+  assert.deepEqual(h.messages,[]);
+});
+
+test('installed OMP wrapper uses its existing app credential and honors live note settings without claiming notices', async t => {
+  const home=mkdtempSync(join(tmpdir(),'cc-omp-installed-'));
+  const daemon=await new ClankerChat({home,name:'Synthetic',local:true,discovery:false,updateCheck:false}).start();
+  let closed=false;
+  t.after(async()=>{if(!closed)await daemon.close();rmSync(home,{recursive:true,force:true});});
   const user=join(home,'user');mkdirSync(user);
   const client=discoverClients({systemHome:user,env:{PATH:''}}).find(item=>item.id==='omp');
   const launch={command:process.execPath,args:[resolve('src/cli.js'),'mcp'],env:{CLANKER_HOME:home}};
   assert.equal(applyClientSelection(home,['omp'],launch,[client])[0].state,'connected');
   const wrapper=join(dirname(client.file),'extensions/clanker-chat.js');
+  const credential=parse(readFileSync(client.file,'utf8')).mcpServers.clanker.env.CLANKER_CLIENT_TOKEN;
   const contents=readFileSync(wrapper,'utf8');
-  assert.doesNotMatch(contents,/\b(?:home|token|CLANKER_CLIENT_TOKEN)\b/,'display-only wrappers embed no local-call credentials');
-  assert.ok(!contents.includes(home));
+  assert.ok(contents.includes(JSON.stringify({home,id:'omp',token:credential})));
   const {pathToFileURL}=await import('node:url');
   const {default:installed}=await import(pathToFileURL(wrapper).href);
-  const handlers={},messages=[],toasts=[];
-  installed({on:(event,fn)=>{handlers[event]=fn;},sendMessage:(...args)=>messages.push(args)});
-  const ctx={hasUI:true,ui:{notify:text=>toasts.push(text)}};
-  const emit=(context=ctx)=>handlers.mcp_notification({server:'clanker',method:'notifications/clanker/inbox',params:store.status()},context);
-  // An input text transform becomes the rendered/persisted user message in OMP.
-  // Neither that path nor a source-ambiguous hidden/provider hook may be installed.
-  assert.deepEqual(Object.keys(handlers).sort(),['mcp_notification','session_start']);
-  for (const enabled of [true,false,true]) {
+  const h=ompHost(installed);
+  for(const enabled of [true,false,true]) {
     setAgentNote(home,enabled);
-    store.prepare('UPDATE messages SET read=1').run();
-    store.insert('untrusted-peer','in',{id:randomUUID(),text:'REMOTE PRIVATE PREVIEW',kind:'message',thread:randomUUID(),createdAt:Date.now()});
-    const before=toasts.length;
-    emit({hasUI:false});
-    assert.equal(toasts.length,before,'headless arrivals have no model-backed fallback');
-    emit();emit();
-    assert.equal(toasts.length,before+1,'setting changes do not change count-only batch display');
-    for (const source of ['interactive','rpc','extension']) {
-      const event={text:'LOCAL PRIVATE PROMPT',source};
-      const result=await handlers.input?.(event);
-      assert.equal(result,undefined,'no setting permits rewriting a submitted user message');
-      assert.equal(event.text,'LOCAL PRIVATE PROMPT');
+    daemon.store.prepare('UPDATE messages SET read=1').run();
+    daemon.store.insert('untrusted-peer','in',{id:randomUUID(),text:'REMOTE PRIVATE PREVIEW',kind:'message',thread:randomUUID(),createdAt:Date.now()});
+    const params=daemon.store.status(),before=h.toasts.length;
+    h.emit(params,{...h.ctx,hasUI:false});
+    assert.equal(h.toasts.length,before);
+    h.emit(params);h.emit(params);
+    assert.equal(h.toasts.length,before+1,'settings do not alter count display');
+    h.input(`owner ${before}`,'rpc');
+    const result=await h.start(`owner ${before}`);
+    if(enabled) {
+      assert.equal(result?.message.display,false);assert.match(result.message.content,/REMOTE PRIVATE PREVIEW/);
+      assert.equal(result.message.attribution,'agent');
+    } else assert.equal(result,undefined);
+    h.branch(`accepted-${before}`);
+    h.handlers.agent_end({},h.ctx);
+    if(!enabled) {
+      setAgentNote(home,true);h.emit(params);h.input('later after enabling');
+      assert.equal(await h.start('later after enabling'),undefined,'enabling never rearms an already displayed and submitted batch');
+      h.branch('accepted-after-enabling');h.handlers.agent_end({},h.ctx);
     }
-    assert.equal(store.status().unread,1,'display never marks read');
+    assert.equal(daemon.store.status().unread,1);
+    assert.equal(daemon.store.prepare('SELECT count(*) AS n FROM notification_notices').get().n,0);
   }
-  handlers.session_start();emit();
-  assert.equal(toasts.length,4,'a new session retains its own count announcement');
-  assert.deepEqual(toasts,Array(4).fill('Clanker Chat · 1 unread'));
-  assert.deepEqual(messages,[],'ordinary arrivals never append context, conversation cards or a model turn');
+  disableClient(home,'omp');
+  h.emit({latest:100,unread:1,unreadFirst:100});h.input('revoked owner');
+  assert.equal(await h.start('revoked owner'),undefined,'revoked credential fails open');
+  await daemon.close();closed=true;
+  h.emit({latest:101,unread:1,unreadFirst:101});h.input('offline owner');
+  assert.equal(await h.start('offline owner'),undefined,'offline inbox does not interrupt owner');
+  assert.deepEqual(h.messages,[]);
 });
 
-test('Hermes consumes its native JSON-text status envelope and displays without a model turn', () => {
+test('OMP deadline cancels stalled local I/O promptly and never retries context on later turns', async t => {
+  let aborted;
+  const disconnected=new Promise(resolve=>{aborted=resolve;});
+  const {host:h,calls}=await ompSocket(t,(_request,response)=>{response.on('close',aborted);response.writeHead(200,{'content-type':'application/json'});response.write('{');});
+  h.emit({latest:1,unread:1,unreadFirst:1});h.input('owner prompt');
+  const start=Date.now();
+  assert.equal(await h.start('owner prompt'),undefined);
+  assert.ok(Date.now()-start<2000,'does not wait for the 30 second general request deadline');
+  await disconnected;
+  h.branch('accepted-owner');h.handlers.agent_end({},h.ctx);
+  h.input('later owner');assert.equal(await h.start('later owner'),undefined);
+  assert.equal(calls.length,1);
+});
+
+test('OMP only marks displayed batches, clears an unseen zero batch and coalesces combined marked boundaries', async t => {
+  const {host:h,calls}=await ompSocket(t);
+  h.emit({latest:2,unread:1,unreadFirst:2},{...h.ctx,hasUI:false});
+  h.input('headless input');assert.equal(await h.start('headless input'),undefined);
+  h.branch('headless-owner-persisted');
+  h.emit({latest:2,unread:1,unreadFirst:2});
+  h.emit({latest:2,unread:0,unreadFirst:0});
+  h.input('after zero');assert.equal(await h.start('after zero'),undefined);
+  h.branch('zero-owner-persisted');
+  h.emit({latest:3,unread:1,unreadFirst:3});h.input('earlier batch input');
+  h.emit({latest:4,unread:1,unreadFirst:4});h.input('newer batch input','rpc');
+  assert.ok((await h.start('earlier batch input\n\nnewer batch input'))?.message);
+  assert.deepEqual(calls.map(call=>call.args.boundary),[4],'one combined owner turn covers its newest displayed boundary');
+  assert.deepEqual(h.messages,[]);
+});
+
+test('OMP discards in-flight context after reset and child lifecycle cannot clear owner preparation', async t => {
+  let respond,notifyStarted;
+  const started=new Promise(resolve=>{notifyStarted=resolve;});
+  const {host:h,calls}=await ompSocket(t,(_request,response)=>{respond=response;notifyStarted();});
+  h.emit({latest:1,unread:1,unreadFirst:1});h.input('owner input');
+  const prepared=h.start('owner input');
+  await started;
+  h.handlers.session_shutdown();
+  respond.end(JSON.stringify({additionalContext:'No longer this session'}));
+  assert.equal(await prepared,undefined);
+  const nextStarted=new Promise(resolve=>{notifyStarted=resolve;});
+  h.emit({latest:2,unread:1,unreadFirst:2});h.input('current owner');
+  const next=h.start('current owner');
+  await nextStarted;
+  respond.end(JSON.stringify({additionalContext:'Current session note'}));
+  const note=await next;assert.ok(note?.message);
+  h.handlers.agent_end({}, {...h.ctx,agent:{kind:'subagent'}});
+  assert.deepEqual(await h.start('current owner'),note);
+  assert.equal(calls.length,2);
+});
+
+test('Hermes preserves native count display and attaches inbox context only to eligible owner turns', () => {
   execFileSync('python3',[resolve('test/hermes_plugin_test.py'),resolve('src/integrations/hermes/__init__.py')],{encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:15_000});
 });
 

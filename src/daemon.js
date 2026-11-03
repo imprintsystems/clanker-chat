@@ -41,7 +41,7 @@ const pairSchema = z.object({ identity: z.unknown(), endpoint: z.string().max(25
 const announceSchema = z.object({ endpoint: z.string().max(256) }).strict();
 const commandSchema = z.object({ command: z.string(), args: z.record(z.string(), z.unknown()) }).strict();
 const workerId = messageId.optional();
-const READ_ONLY = ['status', 'overview', 'message', 'peers', 'parties', 'party_get', 'bridges', 'bridge_get', 'inbox', 'bridge_wait', 'discussion_list'];
+const READ_ONLY = ['status', 'overview', 'message', 'peers', 'parties', 'party_get', 'bridges', 'bridge_get', 'inbox', 'bridge_wait', 'discussion_list', 'notification_context'];
 // Running inboxes announce their address to every contact every 30 seconds and
 // get a signed receipt back, so a contact unheard of for longer than this is offline.
 const ONLINE = 75_000;
@@ -237,6 +237,7 @@ export class ClankerChat extends EventEmitter {
       case 'notification_register': return this.notifications.register(args);
       case 'notification_unregister': return this.notifications.unregister(args);
       case 'notification_notice': return this.notifications.notice(args);
+      case 'notification_context': return this.notifications.context(args, actor?.client);
       case 'notification_settings': return { agentNote: args.agentNote === undefined ? readAccess(this.options.home).agentNote : setAgentNote(this.options.home, args.agentNote) };
       case 'notifications': return this.notifications.status();
       case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION, discovery: this.discovery.status(), encryptionKeySince: this.keys.statement().from };
