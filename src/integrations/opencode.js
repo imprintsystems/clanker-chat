@@ -2,6 +2,9 @@ import { localCall } from '../local.js';
 import { discussionNotice } from '../discussions.js';
 
 // OpenCode 2 server plugin. Ordinary arrivals belong to the display-only TUI part.
+// V2 prompt admission also runs for programmatic session.prompt calls and exposes
+// no trusted user-origin field; context hooks also run on tool continuations.
+// Keep ordinary inbox context out rather than inject it into a non-user request.
 export default async function clankerDiscussions(ctx, connection) {
   if (process.env.CLANKER_BRIDGE_RUN) return () => {};
   const bindings = new Map(), sessions = new Set(), busy = new Set(), delivered = new Map();

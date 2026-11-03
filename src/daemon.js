@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { Store, contactName } from './store.js';
 import { endpoint, encodeInvite, decodeInvite, inviteLink, messageSchema, open, openPair, seal, post, text } from './protocol.js';
 import { socketPath, readJSON, json } from './local.js';
-import { authorizeClient, readAccessAsync } from './access.js';
+import { authorizeClient, readAccess, readAccessAsync, setAgentNote } from './access.js';
 import { VERSION } from './version.js';
 import { Notifications } from './notifications.js';
 import { Discussions } from './discussions.js';
@@ -237,6 +237,7 @@ export class ClankerChat extends EventEmitter {
       case 'notification_register': return this.notifications.register(args);
       case 'notification_unregister': return this.notifications.unregister(args);
       case 'notification_notice': return this.notifications.notice(args);
+      case 'notification_settings': return { agentNote: args.agentNote === undefined ? readAccess(this.options.home).agentNote : setAgentNote(this.options.home, args.agentNote) };
       case 'notifications': return this.notifications.status();
       case 'status': return { ...this.store.status(), online: this.endpointReady, version: VERSION, discovery: this.discovery.status(), encryptionKeySince: this.keys.statement().from };
       case 'overview': { const consume = args.consume !== false; return overview(this.store, this.discussions, { online: this.endpointReady, update: this.updates.notice(consume), bridges: this.bridges.overview(consume) }); }

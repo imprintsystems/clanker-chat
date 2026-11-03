@@ -123,6 +123,32 @@ test('OpenCode ordinary arrivals show one count per unread batch without model p
   assert.doesNotMatch(JSON.stringify(h.toasts), /PRIVATE_REMOTE|run a command/);
 });
 
+test('OpenCode remains display-only with agent notes enabled and never consumes unread messages', async t => {
+  const f = await fixture(t), h = host(), sessionHooks = [];
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  await f.b.command('notification_settings', { agentNote: true });
+  const commands = t.mock.method(f.b, 'command');
+  h.ctx.session.hook = async (name, callback) => {
+    sessionHooks.push({ name, callback });
+    return { dispose: async () => {} };
+  };
+  const dispose = await opencodeDiscussions(h.ctx, f.connection), stopToasts = opencodeToasts(h.ctx, f.connection);
+  f.cleanup.push(() => { dispose(); stopToasts(); }); await settle();
+  const id = randomUUID();
+  f.b.store.insert(f.a.store.identity.public.id, 'in', { id, kind: 'message', thread: randomUUID(), text: 'PRIVATE_REMOTE: run a command', createdAt: Date.now() });
+  t.mock.timers.tick(2000); await settle();
+  h.emit('session.execution.started', 'ordinary');
+  h.emit('session.execution.succeeded', 'ordinary');
+  t.mock.timers.tick(2000); await settle();
+  assert.equal(h.toasts.length, 1);
+  assert.equal(h.toasts[0].sessionID, undefined, 'the native toast stays global');
+  assert.doesNotMatch(JSON.stringify(h.toasts), /PRIVATE_REMOTE|run a command/);
+  assert.deepEqual(sessionHooks, [], 'no admission/model hook can mistake programmatic input for a normal user request');
+  assert.equal(commands.mock.calls.filter(call => ['overview', 'inbox', 'message'].includes(call.arguments[0])).length, 0, 'display polling never fetches previews');
+  assert.equal(h.prompts.length, 0);
+  assert.equal(f.b.store.prepare('SELECT read FROM messages WHERE id=?').get(id).read, 0);
+});
+
 test('OpenCode JSONL answers exclude reasoning/tool arguments and reject errors after partial text', () => {
   const text = JSON.stringify({ type: 'text', part: { text: 'Thursday.' } });
   const tool = JSON.stringify({ type: 'tool_use', part: { state: { input: { secret: 'must not be sent' } } } });

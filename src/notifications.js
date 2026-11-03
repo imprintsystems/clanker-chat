@@ -3,11 +3,12 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { readAccess, readAccessAsync } from './access.js';
 import { discussionNotice } from './discussions.js';
+import { inboxNote } from './overview.js';
 
 const execute = promisify(execFile);
 const registration = z.object({ session: z.string().uuid(), executable: z.string().startsWith('/').max(4096), agentHome: z.string().startsWith('/').max(4096),lease:z.string().uuid(),initial:z.boolean() }).strict();
 
-// Routine inbox awareness is a user-only hook warning, never a queued prompt.
+// Routine inbox awareness rides on a normal user prompt, never a queued turn.
 // Only already accepted discussion work may request a model turn.
 export class Notifications {
   constructor(home, store, { run = execute, now = Date.now, discussions } = {}) { this.home = home; this.store = store; this.run = run; this.now = now; this.discussions=discussions; this.workKeys=new Map(); this.stopped = false; }
@@ -28,15 +29,19 @@ export class Notifications {
   }
   notice(value) {
     const {client,session}=z.object({client:z.enum(['codex','claude']),session:z.string().uuid()}).strict().parse(value);
-    if(this.stopped || !readAccess(this.home).clients[client]?.enabled)return {};
+    const access = readAccess(this.home);
+    if(this.stopped || !access.clients[client]?.enabled)return {};
     const {unread,latest}=this.store.status();
     if(!unread){this.store.prepare('DELETE FROM notification_notices').run();return {};}
+    // Build context first: a formatter error must not consume the display claim.
+    const additionalContext = access.agentNote ? inboxNote(this.store, latest) : undefined;
     // Independent of async SessionStart; unread boundaries also survive a clear
     // and a new arrival between ticks, without observing an intermediate zero.
     const claimed=this.store.prepare(`INSERT INTO notification_notices(client,session,boundary,shown) VALUES (?,?,?,?)
       ON CONFLICT(client,session) DO UPDATE SET boundary=excluded.boundary,shown=excluded.shown
       WHERE NOT EXISTS (SELECT 1 FROM messages WHERE direction='in' AND read=0 AND seq<=notification_notices.boundary)`).run(client,session,latest,this.now());
-    return claimed.changes ? {systemMessage:`Clanker Chat · ${unread} unread`} : {};
+    if (!claimed.changes) return {};
+    return { systemMessage: `Clanker Chat · ${unread} unread`, ...(additionalContext ? { additionalContext } : {}) };
   }
   status() { return this.store.prepare('SELECT session,heartbeat,latest,error FROM notification_sessions WHERE closed=0 AND heartbeat>?').all(this.now()-35_000); }
   async tick() {

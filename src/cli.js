@@ -17,6 +17,7 @@ async function main() {
     'reply-to': { type: 'string' }, unread: { type: 'boolean' }, after: { type: 'string' },
     client: { type: 'string', multiple: true }, 'no-service': { type: 'boolean' },
     'agent-home': {type:'string'}, 'agent-bin': {type:'string'},
+    'agent-note': {type:'string'},
     'max-turns': {type:'string'}, minutes:{type:'string'},
     local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, all: { type: 'boolean' },
     json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }, clear: { type: 'boolean' },
@@ -44,9 +45,17 @@ async function main() {
   if (command === 'mcp') { const { serveMCP } = await import('./mcp.js'); return serveMCP(home); }
   if(command==='notify' && ['codex','claude'].includes(target)) {const {runNotificationHook}=await import('./host-launch.js');await runNotificationHook(home,target,{agentHome:values['agent-home'],executable:values['agent-bin']});return;}
   if (command === 'notifications') {
+    if (values['agent-note'] !== undefined) {
+      if (!['on', 'off'].includes(values['agent-note'])) throw new Error('Use --agent-note on or --agent-note off.');
+      await localCall(home, 'notification_settings', { agentNote: values['agent-note'] === 'on' });
+    }
+    const { readAccess } = await import('./access.js');
+    const agentNote = readAccess(home).agentNote;
     const alerts = await localCall(home, 'notifications');
-    if (values.json) return console.log(JSON.stringify(alerts, null, 2));
-    heading('Session alerts', alerts.length ? String(alerts.length) : '');
+    if (values.json) return console.log(JSON.stringify({ agentNote, sessions: alerts }, null, 2));
+    heading('Inbox notifications');
+    rows([['Agent note', agentNote ? 'on' : 'off']]);
+    hint('Change with `clanker notifications --agent-note on|off`.');
     if (!alerts.length) return hint('No live Codex alert hooks. Open /hooks in Codex and trust Clanker Chat alerts.');
     rows(alerts.map(row => ['Codex', `${row.session}${row.error ? ` · ${clean(row.error)}` : ''}`])); console.log(); return;
   }

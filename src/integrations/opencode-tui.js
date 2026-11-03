@@ -1,6 +1,8 @@
 import { localCall } from '../local.js';
 
 // OpenCode 2 TUI plugin: metadata-only notices, with no model/session mutation.
+// The public TUI API has no normal-prompt submission hook; do not replace its
+// composer/keybindings or turn a toast into a session.prompt fallback.
 export default function clankerToasts(ctx, connection) {
   let boundary = 0, polling = false, stopped = false;
   const dispose = () => { stopped = true; clearInterval(timer); };

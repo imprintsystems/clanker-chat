@@ -4,19 +4,23 @@ import { join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
-const schema = z.object({ enforced: z.boolean(), clients: z.record(z.string(), z.object({ label: z.string(), token: z.string().regex(/^[a-f0-9]{64}$/), enabled: z.boolean() })) });
+const schema = z.object({ enforced: z.boolean(), agentNote: z.boolean().default(true), clients: z.record(z.string(), z.object({ label: z.string(), token: z.string().regex(/^[a-f0-9]{64}$/), enabled: z.boolean() })) });
 export function readAccess(home) {
   const file = join(home, 'clients.json');
-  return existsSync(file) ? schema.parse(JSON.parse(readFileSync(file, 'utf8'))) : { enforced: false, clients: {} };
+  return existsSync(file) ? schema.parse(JSON.parse(readFileSync(file, 'utf8'))) : { enforced: false, agentNote: true, clients: {} };
 }
 export async function readAccessAsync(home) {
   try { return schema.parse(JSON.parse(await readFile(join(home, 'clients.json'), 'utf8'))); }
-  catch (error) { if (error.code === 'ENOENT') return { enforced: false, clients: {} }; throw error; }
+  catch (error) { if (error.code === 'ENOENT') return { enforced: false, agentNote: true, clients: {} }; throw error; }
 }
 export function writeAccess(home, state) {
   const value = schema.parse(state); mkdirSync(home, { recursive: true, mode: 0o700 }); chmodSync(home, 0o700);
   const file = join(home, 'clients.json'); const temp = `${file}.${process.pid}.tmp`;
   writeFileSync(temp, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 }); renameSync(temp, file);
+}
+export function setAgentNote(home, enabled) {
+  const state = readAccess(home); state.agentNote = z.boolean().parse(enabled); writeAccess(home, state);
+  return state.agentNote;
 }
 export function clientGrant(home, id, label) {
   const existing = readAccess(home).clients[id];

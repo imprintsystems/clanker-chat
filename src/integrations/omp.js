@@ -1,4 +1,6 @@
-// Managed by Clanker Chat. Notifications display metadata, never remote instructions.
+// Managed by Clanker Chat. Ordinary inbox arrivals remain display-only:
+// OMP input transforms rewrite visible user text; hidden hooks cannot bind
+// one request to its actual user ingress. Accepted discussions stay separate.
 export default function clankerNotifications(pi) {
   let boundary = 0;
   let discussionKey = '';

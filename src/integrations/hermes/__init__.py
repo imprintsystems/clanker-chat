@@ -113,6 +113,9 @@ def register(ctx):
         return ('Clanker Chat inbox alerts are enabled for this session.' if start(**kwargs)
                 else 'Clanker Chat alerts require a local CLI, TUI or desktop session.')
 
+    # v0.22.5 pre_llm_call has context returns, but no trusted user-input origin.
+    # Classic CLI inject_message queues plain text alongside user input, so that
+    # hook cannot safely consume a next-user-only note on this host.
     ctx.register_hook('on_session_start', start)
     ctx.register_hook('on_session_finalize', stop_session)
     ctx.register_hook('on_session_reset', stop_session)

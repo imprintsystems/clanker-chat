@@ -9,7 +9,10 @@ export async function runNotificationHook(home, client, { agentHome, executable 
   if(input.hook_event_name==='SessionEnd') { await localCall(home,'notification_unregister',{client,session:input.session_id}); return; }
   if(input.hook_event_name==='UserPromptSubmit') {
     const notice=await localCall(home,'notification_notice',{client,session:input.session_id});
-    if(notice.systemMessage)process.stdout.write(JSON.stringify(notice)+'\n');
+    if(notice.systemMessage) {
+      const { additionalContext, ...display } = notice;
+      process.stdout.write(JSON.stringify({ ...display, ...(additionalContext ? { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext } } : {}) })+'\n');
+    }
     return;
   }
   if(client!=='codex' || input.hook_event_name!=='SessionStart') return;

@@ -299,3 +299,43 @@ Count-notice claims now persist while their covered messages remain unread, even
 OpenCode's workerless discussion poll excludes active turn claims. Its delivery markers now track only the current pending revision/kind, so an interrupted claimed turn can wake its bound session again after the ninety-second lease expires. The regression failed before the fix and now covers one renewed wake for that same revision, no wake during the active claim and no repeated wakes while recovered work stays pending and unclaimed.
 
 The final Node.js 24 `npm test` run passed **128 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. CLI smoke checks returned `clanker 0.5.2` from `--version` and the agent-first introduction from `--help`. These checks use synthetic local profiles; they do not add native-app visual or real-model verification.
+
+## Optional next-prompt inbox mentions (unreleased), 3 November 2026
+
+The initial Node.js 24 `npm ci --ignore-scripts` and `npm test` run passed **131 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. Consumer coverage included one sender/preview note per unread batch, no repeat on the next prompt, read rearming, unchanged unread state, nickname display, sanitized/capped previews, revocation and the live owner-only `--agent-note on|off` toggle.
+
+The actual `notify claude` and `notify codex` commands were exercised with disposable profiles created using `setup --no-service`, two paired local synthetic inboxes and one encrypted test message. Each first prompt emitted the native `systemMessage` plus `hookSpecificOutput` with `hookEventName: "UserPromptSubmit"` and the delimited sender/preview note. Each second prompt emitted no output. Unread remained one after both hooks. The owner CLI reported `{"agentNote":false,"sessions":[]}` after switching notes off. Temporary profiles were removed; no installed service, authentication/trust state or real contact was used.
+
+OMP has no documented hidden per-request context path; its [`input` hook](https://github.com/can1357/oh-my-pi/blob/594670d6b0b6d5f8080693aad34dedd38b5ebd94/packages/coding-agent/src/session/agent-session.ts#L8330-L8413) replaces the visible user message, so ordinary arrivals stay display-only.
+
+Hermes stays display-only because its [`pre_llm_call` hook](https://github.com/NousResearch/hermes-agent/blob/v0.22.5/agent/turn_context.py) has no trusted user-input origin discriminator and also runs on automatic turns.
+
+OpenCode stays display-only because [prompt admission](https://opencode.ai/v2/docs/build/plugins/server/#prompt-admission) also handles programmatic submissions, while context hooks run on continuations; neither provides a trusted next-user-request boundary.
+
+This verifies hook JSON, adapter/setting behavior and unread-batch semantics, not new authenticated native-host visual placement or real-model compliance with the one-sentence instruction. The previous count-only provider captures do not establish the new note's model behavior.
+
+## Inbox-note review corrections (unreleased), 3 November 2026
+
+Note previews now use the overview's ordinary-inbox filters, excluding internal discussion/party/bridge events and pending approvals. The unread count still matches the native display, while `previewable` identifies the ordinary inbox subset and “and N more” counts only that subset. A regression inserts unread protocol rows without text and confirms that they are not summarized, the count remains coherent and no message is marked read. A synthetic formatter failure confirms that context is built before the display claim, leaving the claim available after failure. Literal contact-data delimiter markers are stripped from names and previews before whitespace sanitization and truncation.
+
+Consumer tests confirm OMP leaves user text unchanged with either setting and continues native count-only notices.
+
+The full Node.js 24 `npm test` run passed **133 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**.
+
+Both actual Claude/Codex hook commands were repeated against disposable profiles initialized with `setup --no-service` and paired local synthetic inboxes. Each first prompt returned `systemMessage` and nested `UserPromptSubmit.additionalContext` with the ordinary sender/preview data; each second prompt returned empty stdout. Unread remained one; the CLI toggle reported `agentNote: false`. All temporary profiles and installed test dependencies were removed. No native-app visual or real-model proof is claimed.
+
+## Decision arrivals in next-prompt notes (unreleased), 3 November 2026
+
+Inbox notes now include the owner decisions surfaced by the overview: pending task requests, second-opinion proposals, party invites and bridge proposals. They preview task text, discussion question, party name or bridge topic, with sender nickname and explicit kind, using the same sanitization/caps and shared newest-first three-item limit as ordinary messages. Only unread arrivals within the batch boundary count toward the preview list and “and N more”; internal protocol traffic remains excluded. This supersedes the earlier exclusion of pending approvals from note previews. The shortened instruction still permits mentioning only and explicitly requires the user's yes before approving, accepting, joining or opening.
+
+Node.js 24 `npm ci --ignore-scripts` and the full `npm test` suite passed **134 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. New coverage exercises every decision kind, sender nicknames, sanitized/capped decision previews, newest-first ordering, shared truncation, batch-boundary exclusion, pending approval preservation and absence of internal event previews.
+
+Actual Claude and Codex hook commands ran against paired disposable local profiles initialized with `setup --no-service`. An encrypted ordinary message and a second-opinion proposal arrived. Each first prompt returned **Clanker Chat · 2 unread** plus a note listing the proposal question before the message; each second prompt returned empty stdout. Both messages remained unread and the discussion remained `proposed`, with no acceptance. Temporary profiles and test dependencies were removed. No real contact, installed service, native visual rendering or real-model response was involved.
+
+## Agent-controlled inbox-note setting (unreleased), 3 November 2026
+
+Any connected agent can now read the local inbox-note setting or change it when the local user asks, using `clanker_agent_note` with optional `setting: "on" | "off"`. No confirmation dialog is needed. The tool reports that the note applies to Claude Code and Codex; OMP, Hermes and OpenCode remain display-only. The CLI flag remains available. Session-hook registration, unregistration and notice claims remain owner-only.
+
+Node.js 24 `npm ci --ignore-scripts` and the full `npm test` suite passed **136 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. New consumer coverage includes enabled display-only app credentials reading/changing the daemon setting, the next claimed batch reflecting the change, no reannouncement of already claimed batches, revoked apps receiving the normal not-connected error, continued refusal of MCP credentials at hook endpoints, and the actual stdio MCP tool controlling a real Claude prompt hook.
+
+A separate smoke check ran the actual MCP server over stdio with an enabled app credential and a disposable local profile. Reading returned `{"agentNote":true,"appliesTo":["Claude Code","Codex"]}`. Switching off returned `agentNote: false`; the real `notify claude` command then emitted only `{"systemMessage":"Clanker Chat · 1 unread"}`. Switching on and delivering the next unread batch restored `hookSpecificOutput` with `hookEventName: "UserPromptSubmit"` and the sender/preview note. A repeated prompt emitted no output; the message remained unread. Temporary profiles, the smoke script and installed test dependencies were removed. No real contact, installed service, native visual rendering or real-model response was involved.

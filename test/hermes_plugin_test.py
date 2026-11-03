@@ -89,6 +89,7 @@ statuses = [
 poll_budget = len(statuses)
 ctx = Context(statuses)
 plugin.register(ctx)
+assert 'pre_llm_call' not in ctx.hooks, 'Without a trusted user-origin discriminator Hermes must remain display-only'
 try:
     ctx.hooks['on_session_start'](session_id='test-session')
     counts = [int(re.findall(r'\d+', post)[0]) for post in ctx.posts]
@@ -96,6 +97,7 @@ try:
     assert all('REMOTE SECRET' not in post for post in ctx.posts)
 finally:
     ctx.cleanup()
+assert not ctx.hooks['on_session_start'](session_id=''), 'An unbound session must not arm notifications'
 remote = Context()
 remote.session_surface = lambda: 'telegram'
 plugin.register(remote)
@@ -103,6 +105,22 @@ remote.hooks['on_session_start'](session_id='not-a-local-chat')
 assert remote.calls == 0 and not remote.posts
 remote.cleanup()
 print('Hermes status boundaries, count-only display, non-injection and cleanup passed')
+
+
+class RevokedContext(Context):
+    def call_mcp(self, server, tool, args, **_):
+        self.calls += 1
+        return {'ok': False, 'error': 'App access revoked'}
+
+
+revoked = RevokedContext()
+plugin.register(revoked)
+try:
+    revoked.hooks['on_session_start'](session_id='revoked-session')
+    assert revoked.calls > 0 and not revoked.posts, 'Revoked access must not display stale inbox data'
+    assert 'pre_llm_call' not in revoked.hooks
+finally:
+    revoked.cleanup()
 
 
 class DiscussionContext(Context):

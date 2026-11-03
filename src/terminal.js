@@ -269,7 +269,7 @@ const HELP = [
     ['agent claude', 'Open Claude Code (Channels opt-in: --development-channel)'],
     ['agent codex', 'Open Codex'],
     ['agent omp', 'Open Oh My Pi'],
-    ['notifications', 'Live Codex alert hooks'],
+    ['notifications', 'Agent-note setting and live Codex alert hooks'],
     ['config', 'MCP settings for any other app'],
     ['mcp', 'Serve MCP over stdio']]],
   ['Contacts and service', [
@@ -283,6 +283,7 @@ const HELP = [
 const COMMAND_OPTIONS = {
   setup: ['--name <name>', '--client <id>', '--no-service'],
   agents: ['--list', '--client <id>', '--no-service'],
+  notifications: ['--agent-note on|off'],
   start: ['--name <name>', '--port <n>', '--local'],
   send: ['--file <path>', '--kind <kind>', '--thread <uuid>', '--reply-to <uuid>'],
   inbox: ['--unread', '--after <seq>'],
