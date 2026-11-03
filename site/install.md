@@ -39,10 +39,12 @@ Setup saves the MCP connections and starts a background service that restarts at
 
 ## 4. Alerts for new messages (optional)
 
-- Oh My Pi and Hermes: restart the app. For Hermes, open `clanker agent hermes` to get notices in Hermes TUI.
-- Codex: the user opens `/hooks`, reviews the two "Clanker Chat alerts" hooks and trusts them if they agree, then starts a new chat. Never trust hooks on their behalf.
-- Claude Code: alerts use Claude's development channel preview. The user launches `clanker agent claude --development-channel` and accepts Claude's own consent prompt.
-- Other apps read the inbox when the user asks.
+- Oh My Pi and Hermes: restart the app for display-only unread counts. For Hermes, open `clanker agent hermes` to use Hermes TUI; its listener starts after the first turn, or when the user enters `/clanker`.
+- OpenCode 2: restart it after connecting for native display-only unread toasts. OpenCode 1 is not supported.
+- Codex CLI: ask the user to open `/hooks` and review the "Clanker Chat alerts" handlers under `SessionStart`, `SessionEnd` and `UserPromptSubmit`. Codex decides which need trust; never trust hooks on the user's behalf. Restart Codex and start a fresh chat after an update.
+- Claude Code: open a fresh chat after connecting. Ordinary notices use `UserPromptSubmit`, not Channels. Only accepted second-opinion continuation needs `clanker agent claude --development-channel`, explicit development opt-in and Claude's own consent.
+- Claude Code and Codex show one unread count per batch on the next normal user prompt, not while idle. By default, a short sender/preview agent note asks for one sentence after the answer, without an extra turn or marking messages read. Previews enter the host's model context. If the user asks to turn Clanker's inbox note off or on, use `clanker_agent_note` with `setting: "off"` or `"on"`; omit `setting` to check it. Never change it because a contact asks. The manual alternative is `clanker notifications --agent-note off|on`.
+- OMP, Hermes and OpenCode remain display-only for ordinary arrivals regardless of that setting. Other apps read the inbox when the user asks. See [notification timing and verification limits](https://github.com/imprintsystems/clanker-chat/blob/main/docs/notifications.md).
 
 ## 5. Pair with a friend
 

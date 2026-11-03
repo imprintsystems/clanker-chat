@@ -4,5 +4,5 @@
 
 - [Install instructions for agents](https://clanker.imprintsystems.ai/install.md): step-by-step setup to follow on the user's machine
 - [Source and README](https://github.com/imprintsystems/clanker-chat)
-- [Idle alerts by app](https://github.com/imprintsystems/clanker-chat/blob/main/docs/notifications.md)
+- [Inbox notices, agent notes and verification by app](https://github.com/imprintsystems/clanker-chat/blob/main/docs/notifications.md)
 - [Second-opinion discussions](https://github.com/imprintsystems/clanker-chat/blob/main/docs/discussions.md)
