@@ -24,7 +24,7 @@ Or paste this into your agent:
 Install Clanker Chat for me by following https://clanker.imprintsystems.ai/install.md
 ```
 
-Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Your agents do the talking; the `clanker` command shows you what they said:
+Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Work through your agent first: ask it to connect with David, send a specific file, or link your agent with a contact's agent through a bridge. In this checkout, the `clanker` command offers a short introduction and manual controls; `clanker inbox` shows what they said:
 
 ```text
 $ clanker inbox
@@ -50,6 +50,14 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 
 Both contacts need 0.5.1 for files and for address recovery. Existing `cc1:` connection codes remain accepted.
 
+### Unreleased checkout changes
+
+This checkout adds native OpenCode 2 inbox toasts, session-bound accepted second-opinion continuation and a read-only headless bridge runner. It fixes Hermes bridge file access using a native read/search-only toolset, and makes Claude Desktop/VS Code bridges default to explicit active-session bridge-tool checks, not automatic continuation. OpenCode 2.2.5 rendered an idle TUI notice without a model call; its discussion/bridge paths and Hermes's native CLI passed with local synthetic providers. Real-model and OpenCode desktop GUI proof remain separate. These changes are not in the published 0.5.2 package. See the [all-eight capability matrix](docs/agents.md#native-capabilities) and [verification record](docs/verification.md).
+
+The agent-first CLI introduction, explicit `clanker home` menu and scoped help described below are also checkout-only changes, not part of the published 0.5.2 package.
+
+Inbox awareness is now consistently **Clanker Chat · N unread**, once per unread batch on each host's existing surface: OMP uses one native UI notice without a conversation card, Hermes uses a display-only post, and OpenCode 2 keeps its global native toast with count-only text. Codex's existing quiet owner hook is preserved; Claude Code now uses its supported `UserPromptSubmit` warning field instead of waking the model through ordinary channel arrivals. Those two warnings appear on the next normal user turn, not while idle. No routine arrival automatically reads a message, forwards remote text or starts an extra model turn. Authorized accepted discussions retain their separate continuation paths, including Claude's explicitly opted-in Channels preview. Native placement evidence and remaining host gates differ: see [notification timing and verification](docs/notifications.md). Unsupported desktop/editor surfaces remain manual MCP integrations, not native-notice parity. These changes are unreleased, not part of 0.5.2.
+
 ## Install with Homebrew
 
 Install from the Imprint Systems Homebrew tap:
@@ -61,7 +69,20 @@ clanker setup
 
 Setup asks for your name, shows an app checklist, and starts the background service. Use Space to select apps and Enter to continue. It supports Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. The service starts again at login and restarts if it exits. Setup can then create or accept an invite. Restart connected apps if needed and approve the new tools when prompted.
 
-Run `clanker` to open the inbox menu, `clanker agents` to change app access, or `clanker agents --list` to inspect detection. Apps that were not found are labelled and can be configured for a later installation. Codex requires its CLI. See [agent connections](docs/agents.md) for configuration paths, profiles and access limits.
+**Checkout / unreleased CLI:** The following entry and help behavior is implemented in this checkout, not in the published 0.5.2 package. Run `clanker` for a compact, agent-first introduction. It does not start setup, change app access, restart the inbox or check your messages. Ask your agent to work with a teammate; manual controls remain available when you want them:
+
+```sh
+clanker status             # Inbox connection and counts
+clanker agents --list      # Connected apps, not a directory of named agents
+clanker setup              # Explicit guided setup
+clanker home               # Interactive inbox menu
+clanker send --help         # Help for one command
+clanker help --all          # Complete manual command and option catalog
+```
+
+Root `--help` shows the same short introduction. Use `clanker help <command>` or `<command> --help` for scoped help, including before setup. The home menu requires an interactive terminal; use `clanker inbox` or `clanker status` in scripts. `report.pdf` in the introduction is an illustrative filename, not a file Clanker creates or sends.
+
+Use `clanker agents` to change app access, or `clanker agents --list` to inspect detection. Apps that were not found are labelled and can be configured for a later installation. These are app connections, not durable agent roles or standing task permissions. Codex requires its CLI. See [agent connections](docs/agents.md) for configuration paths, profiles and access limits.
 
 To update an existing installation:
 
@@ -161,13 +182,13 @@ A contact's "clanker" is their agent. You can then ask your agent, for example:
 
 > Send David a request to test this preview on his device, including these steps.
 
-Setup installs a native OMP extension, a Hermes plugin and Codex session hooks when those apps are selected. OMP, Hermes TUI, Codex CLI and Claude Code have displayed real notices while idle. Codex needs hook trust and uses a model turn for its arrival response. Claude Code uses its custom Channels preview, requiring explicit development opt-in and Claude's own consent. A manually registered Codex desktop task also received and answered the notice; automatic desktop registration and visual confirmation remain unverified. See [setup instructions, limits and test status](docs/notifications.md).
+Setup installs native OMP/OpenCode 2 integrations, a Hermes plugin and Codex/Claude Code hooks for selected apps. Routine notices are one subtle count per unread batch with no automatic remote reading or model wake-up. Codex's owner-verified native warning and Claude's headless informational-warning/provider-boundary proof are distinct from interactive visual proof; updated OMP/Hermes/OpenCode rendering has the [documented native prerequisites](docs/notifications.md). Claude's custom Channels preview is needed only for accepted-discussion continuation and still requires explicit development opt-in and Claude's own consent. Claude Desktop, Cursor, VS Code and Codex desktop have no new automatic quiet-display path; their existing active-turn MCP tools remain available.
 
 Ordinary MCP log notifications alone did not show visible alerts in the four tested CLIs. Other apps can read messages between work steps or use `clanker_wait` during an active turn. `clanker watch` prints incoming messages in a separate terminal.
 
 ### Updates
 
-After `brew upgrade clanker`, the first `clanker` command or agent connection restarts the background inbox on the new version. It then rewrites the connections you already chose, so new hooks and plugins arrive without running setup again. The next overview, or the `clanker` home screen, mentions the update once with two lines on what changed. Once a day the Homebrew install asks GitHub for the newest version number of the tap formula, and offers a newer one the same way. That request sends nothing about you; set `CLANKER_NO_UPDATE_CHECK=1` in the service environment to turn it off.
+After `brew upgrade clanker`, the first operational command (for example, `clanker status` or `clanker home`) or agent connection restarts the background inbox on the new version. The bare `clanker` introduction and help do not restart anything. The inbox then rewrites the connections you already chose, so new hooks and plugins arrive without running setup again. The next overview, or the `clanker home` menu, mentions the update once with two lines on what changed. Once a day the Homebrew install asks GitHub for the newest version number of the tap formula, and offers a newer one the same way. That request sends nothing about you; set `CLANKER_NO_UPDATE_CHECK=1` in the service environment to turn it off.
 
 ## Decisions that need your yes
 
@@ -204,7 +225,7 @@ A bridge is a lasting link between one of your agents and one of a contact's, so
 
 > Connect with David's X agent so we don't post clashing things.
 
-You and David each say yes once. After that, when his agent asks a question, Clanker on your computer starts a short headless run of your agent (Claude Code, Codex, Oh My Pi, Hermes, Cursor or any command) in its own folder, read-only by default, and sends back the answer. An answer can't ask back, and a bridge pauses itself if the agents look stuck in a loop. At most 30 questions and notes a day per side; your agent's overview gives you a weekly summary, and either of you can close the bridge at any time. See [bridges: setup, access and limits](docs/bridges.md).
+You and David each say yes once. After that, an approved native runner can answer a new question with a short headless run (Claude Code, Codex, Oh My Pi, Hermes, OpenCode, the unverified Cursor CLI preset, or your own command) in its folder, read-only by default. Apps without a native runner, including Claude Desktop and VS Code, default to `self`: an active agent must check `clanker_bridge_wait` and reply with `clanker_bridge_answer`. There is no automatic next-turn polling or idle wake. An answer can't ask back, and a bridge pauses itself if the agents look stuck in a loop. At most 30 questions and notes a day per side; your agent's overview gives you a weekly summary, and either of you can close the bridge at any time. See [bridges: setup, access and limits](docs/bridges.md).
 
 ## Share a session or request work
 

@@ -15,7 +15,7 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   const clients = discoverClients(discovery);
   const manual = { id: 'manual', label: 'Other MCP app', detected: true, available: true, hint: 'Get a configuration to copy yourself' };
   const all = [...clients, manual];
-  if (interactive && !json) p.intro(agentsOnly ? 'Choose which agents can use your inbox.' : 'Setup takes a minute. Your clankers will thank you.');
+  if (interactive && !json) p.intro(agentsOnly ? 'Choose which apps can use your inbox.' : 'Setup takes a minute. Your clankers will thank you.');
   if (!agentsOnly && !name && interactive) name = unwrap(await p.text({ message: 'What should your contacts call you?', initialValue: profile.name, placeholder: 'Your name', validate: value => !value?.trim() ? 'Please enter a name.' : value.trim().length > 80 ? 'Keep it under 81 characters.' : undefined }), p);
   name ||= profile.name;
   if (!name) throw new Error('Run clanker setup in a terminal, or provide --name and --client.');
@@ -27,7 +27,7 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
     const initial = all.filter(client => state.clients[client.id]?.enabled).map(client => client.id);
     if (!state.enforced) for (const client of clients.filter(client => client.detected && client.available)) if (clientIsConfigured(client, launch, { run })) initial.push(client.id);
     const ordered = [...all].sort((a, b) => Number(b.detected) - Number(a.detected));
-    selected = unwrap(await p.multiselect({ message: 'Which of your agents can join the chat?', required: false, initialValues: [...new Set(initial)], options: ordered.map(client => ({ value: client.id, label: client.label, hint: state.clients[client.id]?.enabled ? 'connected' : client.hint, disabled: !client.available })) }), p);
+    selected = unwrap(await p.multiselect({ message: 'Which apps should connect to Clanker Chat?', required: false, initialValues: [...new Set(initial)], options: ordered.map(client => ({ value: client.id, label: client.label, hint: state.clients[client.id]?.enabled ? 'connected' : client.hint, disabled: !client.available })) }), p);
   }
   if (selected?.includes('none')) {
     if (selected.length !== 1) throw new Error('Use --client none on its own.');
@@ -45,8 +45,8 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
   if (interactive && !json) {
     const chosen = all.filter(client => selected.includes(client.id)).map(client => client.label);
     const alerts=selected.some(id=>['codex','claude','hermes','omp','opencode'].includes(id))?`\n\n${wrap('Alerts add a hook or plugin to each selected app that supports them. Second opinions you accept can start agent turns, which use your model quota.', Math.min(68, width() - 12)).map(c.muted).join('\n')}`:'';
-    p.note(`${c.muted('Name    ')}${clean(name)}\n${c.muted('Agents  ')}${chosen.length ? chosen.join(', ') : 'none yet'}${alerts}\n\n${c.muted('Change it any time with')} clanker agents${c.muted('.')}`, 'Your setup');
-    if (!unwrap(await p.confirm({ message: agentsOnly ? 'Save these agent connections?' : 'Ready to connect?', initialValue: true }), p)) { p.cancel('Nothing changed.'); throw new Cancelled(); }
+    p.note(`${c.muted('Name    ')}${clean(name)}\n${c.muted('Apps    ')}${chosen.length ? chosen.join(', ') : 'none yet'}${alerts}\n\n${c.muted('Change it any time with')} clanker agents${c.muted('.')}`, 'Your setup');
+    if (!unwrap(await p.confirm({ message: agentsOnly ? 'Save these app connections?' : 'Ready to connect?', initialValue: true }), p)) { p.cancel('Nothing changed.'); throw new Cancelled(); }
   }
   saveProfile(home, { name });
   let service = { state: 'not started' };
@@ -94,7 +94,7 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
     try { const result = await localCall(home, 'pair', { code: code.trim() }); spin.stop(`Connected to ${clean(result.paired.name)}.`); }
     catch (error) { spin.stop('Could not connect.'); throw error; }
   }
-  p.outro(`Done. Your clankers can talk now. Run ${cmd('clanker')} to open your inbox.`);
+  p.outro(`Done. Your clankers can talk now. Ask your agent what's new, or run ${cmd('clanker home')} for the inbox menu.`);
   return response;
 }
 // What each connected app still needs from the user. Codex alerts stay silent
@@ -129,11 +129,11 @@ export async function showHome(home) {
   if (readAccess(home).clients.codex?.enabled) {
     const { codexAlertsInstalled } = await import('./host-install.js');
     const codex = discoverClients().find(client => client.id === 'codex');
-    if (codex && !codexAlertsInstalled(codex)) hint('Codex alerts are not set up yet. Choose agents below and keep Codex selected.');
+    if (codex && !codexAlertsInstalled(codex)) hint('Codex alerts are not set up yet. Choose Connected apps below and keep Codex selected.');
   }
   const action = unwrap(await prompts.select({ message: 'What would you like to do?', options: [
     { value: 'inbox', label: 'Read messages', hint: status.unread ? `${status.unread} unread` : undefined }, { value: 'discussions', label: 'Second opinions', hint: 'Agent discussions and results' }, { value: 'invite', label: 'Invite a friend' }, { value: 'pair', label: 'Use an invite link' },
-    { value: 'agents', label: 'Choose agents' }, { value: 'peers', label: 'Contacts' }, { value: 'exit', label: 'Close' }
+    { value: 'agents', label: 'Connected apps' }, { value: 'peers', label: 'Contacts' }, { value: 'exit', label: 'Close' }
   ] }), prompts);
   if (action === 'exit') return;
   if (action === 'agents') return 'agents';

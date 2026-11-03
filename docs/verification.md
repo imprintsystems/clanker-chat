@@ -248,6 +248,20 @@ A separate read-only Cursor check used official CLI **2026.10.22-27dcf5f**: it a
 
 Remaining prerequisites/limits: real-model/account runs for the new OpenCode/Hermes paths; OpenCode desktop GUI proof; authenticated Cursor answering and configured native MCP discovery; Claude Desktop/VS Code real-host checks and a supported current idle/headless API; Codex desktop automatic hook registration and visible delivery. VS Code's old outside-chat sampling service is not used: current MCP MRTR forbids standalone server requests and sampling is deprecated. Active-session MCP and explicit self bridges remain available; no unrelated CLI is relabelled as one of those apps.
 
+## Agent-first terminal entry (unreleased), 2 November 2026
+
+The root `clanker` command and root help now show a compact agent-first introduction, with manual controls beneath it. The root path does not load or modify a profile, start setup, restart the inbox or consume message/update state. `clanker home` explicitly opens the previous interactive inbox menu. App inventory is labelled **Connected apps**; this change does not add durable agent roles, standing grants, a team-task directory or new notification behavior.
+
+Actual Node.js 24 CLI processes ran under Python-created PTYs at **48, 60, 80 and 100 columns**, with color and `NO_COLOR`. Root output, root help, scoped setup/send/bridge help, `help --all` and `--help --all` all fit their terminal widths. The existing bubble wordmark and palette were retained. At 48 columns, long command usages and descriptions use stacked, wrapped rows rather than overflowing columns. Menu option hints also wrap within the existing prompt layout.
+
+The explicit home menu ran against a disposable loopback-only inbox. Enter opened messages; Down/Enter opened second opinions; Up/Enter chose Close; Ctrl-C and Escape cancelled successfully. Enter, Close and Ctrl-C were also exercised at every width in both color modes. A fresh `home` invocation offered explicit setup without creating a profile. Root output remained the same introduction with and without a configured profile, rather than implying that an inbox was online.
+
+Explicit guided `setup --no-service` ran in a real PTY with no apps selected, saved the synthetic name and completed; cancelling explicit app selection left the profile unchanged. Noninteractive `setup --name Synthetic --client manual --no-service --json`, app inventory/disconnection JSON and loopback `status --json` remained parseable and retained their existing result shapes. No real host configuration, credentials, contacts or installed service were changed. No tunnel or external model provider was used.
+
+After removing incidental catalog/copy/default assertions, `node --test test/cli.test.js test/setup.test.js` passed **9 tests**. The final full Node.js 24 `npm test` run passed **121 tests**, with zero failures, cancellations or skips. New tests cover non-mutating root/help behavior, unknown-help failure boundaries, narrow/color output boundaries, noninteractive home rejection, setup identity persistence and actual manual-app credential revocation: configuration export works while authorized, and the old credential and export are refused after deselection. Scoped/manual-help discovery was exercised in the actual PTY smoke above, not pinned as copy in permanent tests. Existing MCP and collaboration regression tests remain in the full suite.
+
+These are local development-checkout results, not a release or a physical-terminal/app-integration guarantee. Notification behavior was not changed or newly verified by this workstream.
+
 ## Codex next-turn inbox warning (unreleased), 3 November 2026
 
 Routine Codex inbox arrivals no longer use `codex queue`. A trusted synchronous `UserPromptSubmit` hook returns only native `systemMessage` JSON, such as **Clanker Chat · 3 unread**, once per chat's unread batch. It adds no developer context, user-message block or request for an assistant response. The timing is deliberately the next normal user turn, not an immediate idle indicator. Already accepted second-opinion work retains its separate session-queue continuation.
@@ -284,3 +298,4 @@ Count-notice claims now persist while their covered messages remain unread, even
 
 OpenCode's workerless discussion poll excludes active turn claims. Its delivery markers now track only the current pending revision/kind, so an interrupted claimed turn can wake its bound session again after the ninety-second lease expires. The regression failed before the fix and now covers one renewed wake for that same revision, no wake during the active claim and no repeated wakes while recovered work stays pending and unclaimed.
 
+The final Node.js 24 `npm test` run passed **128 tests**, with **0 failures, 0 cancellations, 0 skips and 0 todos**. CLI smoke checks returned `clanker 0.5.2` from `--version` and the agent-first introduction from `--help`. These checks use synthetic local profiles; they do not add native-app visual or real-model verification.

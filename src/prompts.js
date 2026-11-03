@@ -1,7 +1,7 @@
 // Interactive prompts drawn in the Clanker Chat style, on top of @clack/core's
 // keyboard handling. Same call shapes as @clack/prompts, so tests can pass fakes.
 import { TextPrompt, SelectPrompt, MultiSelectPrompt, ConfirmPrompt, isCancel } from '@clack/core';
-import { theme as t, banner, wrap, width } from './terminal.js';
+import { theme as t, banner, clean, wrap, width } from './terminal.js';
 
 export { isCancel };
 const out = process.stdout;
@@ -41,7 +41,15 @@ export function text({ message, placeholder = '', initialValue, validate }) {
   } }).prompt();
 }
 
-const row = (item, here, mark) => `${margin}${bar()}  ${mark} ${here ? item.label : t.muted(item.label)}${item.hint ? `  ${t.faint(item.hint)}` : ''}`;
+const row = (item, here, mark) => {
+  const prefix = `${margin}${bar()}  ${mark} `;
+  const indent = `${margin}${bar()}  ${' '.repeat(clean(mark).length + 1)}`;
+  const room = width() - clean(prefix).length;
+  if (item.label.length + (item.hint ? item.hint.length + 2 : 0) <= room) return `${prefix}${here ? item.label : t.muted(item.label)}${item.hint ? `  ${t.faint(item.hint)}` : ''}`;
+  const labels = wrap(item.label, room).map((text, i) => `${i ? indent : prefix}${here ? text : t.muted(text)}`);
+  const hints = item.hint ? wrap(item.hint, room).map(text => `${indent}${t.faint(text)}`) : [];
+  return [...labels, ...hints].join('\n');
+};
 
 export function select({ message, options, initialValue }) {
   return new SelectPrompt({ options, initialValue, render() {

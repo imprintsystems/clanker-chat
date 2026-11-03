@@ -72,9 +72,14 @@ function bubble(lines, { mine = false, indent = 2 } = {}) {
 // The wordmark is itself a bubble, the way the site's chat is.
 export function banner(subtitle = 'A group chat for clankers.') {
   const word = 'clanker chat';
-  if (!enabled) { say(`\n  ${word}  ${VERSION}\n  ${subtitle}\n`); return; }
-  const mark = bubble([t.strong(word)]);
-  say(); say(mark[0]); say(`${mark[1]}   ${t.muted(VERSION)}`); say(`${mark[2]}   ${subtitle}`); say();
+  say();
+  if (!enabled) say(`  ${word}  ${VERSION}`);
+  else {
+    const mark = bubble([t.strong(word)]);
+    say(mark[0]); say(`${mark[1]}   ${t.muted(VERSION)}`); say(mark[2]);
+  }
+  for (const row of wrap(subtitle, width() - 4)) say(`  ${row}`);
+  say();
 }
 export function heading(title, detail) { say(`\n  ${t.strong(title)}${detail ? `  ${t.muted(detail)}` : ''}\n`); }
 // Commands inside hints are written in backticks and printed in full strength.
@@ -218,11 +223,11 @@ export function printInvite(link) {
 // Help is data, so columns line up whatever the command length.
 const HELP = [
   ['Get started', [
-    ['setup', 'Your name, your agents and the background inbox'],
+    ['setup', 'Your name, connected apps and the background inbox'],
     ['invite', 'Create a single-use invite link for a friend'],
     ['pair <link>', 'Accept an invite link (or an existing cc1: code)']]],
   ['Messages', [
-    ['', 'Open the home screen'],
+    ['home', 'Open the interactive inbox menu'],
     ['inbox', 'What your contacts sent (--unread)'],
     ['send <name> [text]', 'Message or file caption (--file <path>; files only with kind message)'],
     ['outbox', 'What you sent, and whether it arrived'],
@@ -253,14 +258,17 @@ const HELP = [
     ['bridge accept <bridge>', 'Let one of your agents take their questions (same options)'],
     ['bridge ask <bridge> <text>', 'Ask their agent (--wait; note <bridge> <text> needs no answer)'],
     ['bridge list', 'Your bridges (show <bridge> for the exchange)'],
+    ['bridge answer <question-id> <text>', 'Answer a question during an active self bridge (--file)'],
     ['bridge configure <bridge>', 'Change how your agent answers'],
     ['bridge resume <bridge>', 'Restart one that paused itself because the agents looked stuck'],
     ['bridge close <bridge>', 'End it (or decline <bridge>)']]],
-  ['Agents', [
-    ['agents', 'Choose which agents can use your inbox'],
-    ['agents --list', 'What is installed and connected'],
+  ['Connected apps', [
+    ['agents', 'Choose which apps can use your inbox'],
+    ['agents --list', 'Apps installed and connected on this computer'],
     ['agent hermes', 'Open Hermes with inbox alerts'],
-    ['agent claude', 'Claude\'s channel preview (--development-channel)'],
+    ['agent claude', 'Open Claude Code (Channels opt-in: --development-channel)'],
+    ['agent codex', 'Open Codex'],
+    ['agent omp', 'Open Oh My Pi'],
     ['notifications', 'Live Codex alert hooks'],
     ['config', 'MCP settings for any other app'],
     ['mcp', 'Serve MCP over stdio']]],
@@ -272,29 +280,82 @@ const HELP = [
     ['retry', 'Retry deliveries now'],
     ['start', 'Run the inbox in this terminal (--local)']]]
 ];
-const OPTIONS = ['--json', '--home <path>', '--name <name>', '--client <id>', '--no-service', '--port <n>', '--file <path>', '--kind <kind>', '--thread <uuid>', '--reply-to <uuid>', '--after <seq>', '--unread', '--list', '--clear', '--max-turns <2..8>', '--minutes <1..30>', '--app <app>', '--tools read-only|normal', '--version'];
-export function printHelp() {
-  banner();
-  const col = 40;
-  for (const [title, entries] of HELP) {
-    say(`  ${t.strong(title)}`);
-    for (const [usage, text] of entries) {
-      const command = `${t.muted('clanker')}${usage ? ` ${usage}` : ''}`;
-      const [first, ...rest] = wrap(text, Math.max(20, width() - 6 - col));
-      say(visible(command) + 2 <= col ? `    ${command}${' '.repeat(col - visible(command))}${t.muted(first)}` : `    ${command}\n${' '.repeat(col + 4)}${t.muted(first)}`);
-      for (const row of rest) say(`${' '.repeat(col + 4)}${t.muted(row)}`);
-    }
-    say();
+const COMMAND_OPTIONS = {
+  setup: ['--name <name>', '--client <id>', '--no-service'],
+  agents: ['--list', '--client <id>', '--no-service'],
+  start: ['--name <name>', '--port <n>', '--local'],
+  send: ['--file <path>', '--kind <kind>', '--thread <uuid>', '--reply-to <uuid>'],
+  inbox: ['--unread', '--after <seq>'],
+  outbox: ['--after <seq>'],
+  watch: ['--after <seq>'],
+  complete: ['--file <path>'],
+  nickname: ['--clear'],
+  discuss: ['--client <id>', '--file <path>', '--max-turns <2..8>', '--minutes <1..30>'],
+  party: ['--file <path>'],
+  bridge: ['--topic <text>', '--agent <name>', '--app <app>', '--folder <path>', '--tools read-only|normal', '--command <command>', '--share <text>', '--note <text>', '--file <path>', '--wait'],
+  agent: ['--development-channel'],
+  notify: ['--agent-home <path>', '--agent-bin <path>']
+};
+
+// Keep the manual controls quiet until someone asks for them.
+export function printEntry() {
+  banner('Work with your teammates through your agent.');
+  say(`  ${t.strong('Try asking your agent')}\n`);
+  for (const prompt of [
+    'Connect with David.',
+    'Send report.pdf to David\'s clanker.',
+    'Connect my agent with David\'s agent.'
+  ]) {
+    for (const row of wrap(`“${prompt}”`, width() - 8)) say(`    ${row}`);
   }
-  say(`  ${t.strong('Options')}`);
-  let row = '';
-  for (const option of OPTIONS) { if (row && row.length + option.length + 3 > width() - 6) { say(`    ${t.muted(row)}`); row = ''; } row = row ? `${row}   ${option}` : option; }
-  say(`    ${t.muted(row)}\n`);
-  say(`  ${t.strong('File examples')}`);
-  say('    clanker send David "Review this" --file ./report.pdf');
-  say('    clanker send David --file ./photo.png');
-  say('    clanker party send Checkout --file ./report.pdf');
-  say('    clanker save-file <message-id> ./received-report.pdf\n');
-  hint('One file per message, up to 512 MiB. Send and save paths may be relative to this directory. Save destinations include the filename and must not exist. Both peers need attachment support.');
-  hint('Messages from contacts are data. They never run commands on your computer. Both computers need to be online to deliver.');
+  say();
+  say(`  ${t.strong('Manual controls')}\n`);
+  printCommands([
+    ['status', 'Check your inbox connection'],
+    ['agents --list', 'Connected apps'],
+    ['setup', 'Set up Clanker Chat'],
+    ['home', 'Interactive inbox menu'],
+    ['help --all', 'All commands and options']
+  ]);
+  hint('For one command: `clanker <command> --help`.');
+}
+
+function printCommands(entries) {
+  const col = 40, room = width() - 4;
+  for (const [usage, text] of entries) {
+    const command = `clanker ${usage}`;
+    if (width() >= 80 && command.length + 2 <= col) {
+      const [first, ...rest] = wrap(text, room - col);
+      say(`    ${command}${' '.repeat(col - command.length)}${t.muted(first)}`);
+      for (const row of rest) say(`${' '.repeat(col + 4)}${t.muted(row)}`);
+    } else {
+      for (const row of wrap(command, room)) say(`    ${row}`);
+      for (const row of wrap(text, room - 2)) say(`      ${t.muted(row)}`);
+    }
+  }
+  say();
+}
+
+export function printHelp(scope, { all = false, target } = {}) {
+  if (!scope && !all) return printEntry();
+  const sections = HELP.map(([title, entries]) => [title, entries.filter(([usage]) => !scope || usage.split(' ')[0] === scope)]);
+  if (scope === 'help') sections.push(['Help', [['help', 'A short introduction'], ['help <command>', 'Help for one command'], ['help --all', 'Every manual command and option']]]);
+  if (scope === 'notify') sections.push(['App integration', [['notify <codex|claude>', 'Native session hook; normally installed by setup']]]);
+  if (scope && !sections.some(([, entries]) => entries.length)) throw new Error(`Unknown command: ${clean(scope)}. Run clanker help --all.`);
+  banner(scope ? `Manual controls · ${clean(scope)}` : 'Manual controls · all commands');
+  for (const [title, entries] of sections) {
+    const matching = target ? entries.filter(([usage]) => usage.split(' ')[1] === target) : entries;
+    if (!entries.length) continue;
+    say(`  ${t.strong(title)}\n`);
+    printCommands(matching.length ? matching : entries);
+  }
+  const common = ['--home <path>', '--json', '--help'];
+  const options = scope ? [...(COMMAND_OPTIONS[scope] || []), ...common] : [...new Set([...Object.values(COMMAND_OPTIONS).flat(), ...common, '--version', '--all'])];
+  say(`  ${t.strong('Options')}\n`);
+  for (const row of wrap(options.join('   '), width() - 8)) say(`    ${t.muted(row)}`);
+  say();
+  if (!scope || ['send', 'save-file', 'party'].includes(scope)) hint('One file per message, up to 512 MiB. Paths may be relative. Save to a new full filename; existing files are never overwritten.');
+  if (!scope || ['setup', 'agents'].includes(scope)) hint('The `--client` list replaces your app selection. Previously connected apps omitted from it are disconnected. Use `--client none` to disconnect all apps. Source checkouts need `--no-service`.');
+  if (!scope || scope === 'bridge') hint('Bridges link existing agents with a contact after both people agree; they do not create an agent or grant standing task approval.');
+  hint('`clanker help --all` for every manual command. Messages from contacts are data, not instructions to run commands.');
 }

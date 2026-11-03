@@ -10,7 +10,7 @@ import { heading, hint, rows, theme, clean, printResult, printHelp, printInvite,
 
 async function main() {
   process.umask(0o077);
-  if(process.argv[2]==='agent') {const {launchAgent}=await import('./host-launch.js');process.exitCode=await launchAgent(process.argv[3],process.argv.slice(4));return;}
+  if(process.argv[2]==='agent' && !['--help', '-h'].includes(process.argv[3])) {const {launchAgent}=await import('./host-launch.js');process.exitCode=await launchAgent(process.argv[3],process.argv.slice(4));return;}
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
     home: { type: 'string' }, name: { type: 'string' }, port: { type: 'string' },
     file: { type: 'string' }, kind: { type: 'string' }, thread: { type: 'string' },
@@ -18,7 +18,7 @@ async function main() {
     client: { type: 'string', multiple: true }, 'no-service': { type: 'boolean' },
     'agent-home': {type:'string'}, 'agent-bin': {type:'string'},
     'max-turns': {type:'string'}, minutes:{type:'string'},
-    local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
+    local: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, all: { type: 'boolean' },
     json: { type: 'boolean' }, list: { type: 'boolean' }, version: { type: 'boolean', short: 'v' }, clear: { type: 'boolean' },
     topic: { type: 'string' }, agent: { type: 'string' }, app: { type: 'string' }, folder: { type: 'string' }, tools: { type: 'string' },
     command: { type: 'string' }, share: { type: 'string' }, note: { type: 'string' }, wait: { type: 'boolean' }
@@ -30,13 +30,16 @@ async function main() {
   const peerNames = ['inbox', 'outbox', 'watch', 'discuss'];
   const output = async (action, value) => values.json ? console.log(JSON.stringify(value, null, 2)) : printResult(action, value, peerNames.includes(action) ? { peers: await localCall(home, 'peers') } : {});
   if (values.version) return console.log(`clanker ${VERSION}`);
-  if (values.help || command === 'help') return printHelp();
+  if (values.help || command === 'help') return printHelp(command === 'help' ? target || (values.help ? 'help' : undefined) : command, { all: !!values.all, target: command === 'help' ? words[0] : target });
+  if (!command) return printHelp();
+  if (command === 'home' && !interactive) throw new Error('The home menu needs an interactive terminal. Ask your agent what needs attention, or run clanker inbox, clanker status or clanker help --all.');
   if (!['start', 'mcp', 'notify', 'setup', 'agents', 'config'].includes(command)) { const { restartIfOutdated } = await import('./setup.js'); await restartIfOutdated(home); }
-  if (!command) {
-    if (!interactive) return printHelp();
+  if (command === 'home') {
     const { readProfile } = await import('./setup.js');
-    if (!readProfile(home).name) command = 'setup';
-    else { const { showHome } = await import('./onboarding.js'); command = await showHome(home); if (!command) return; }
+    if (!readProfile(home).name) return hint('Ask your agent to set up Clanker Chat, or run `clanker setup` when you are ready.');
+    const { showHome } = await import('./onboarding.js');
+    command = await showHome(home);
+    if (!command) return;
   }
   if (command === 'mcp') { const { serveMCP } = await import('./mcp.js'); return serveMCP(home); }
   if(command==='notify' && ['codex','claude'].includes(target)) {const {runNotificationHook}=await import('./host-launch.js');await runNotificationHook(home,target,{agentHome:values['agent-home'],executable:values['agent-bin']});return;}
@@ -64,7 +67,7 @@ async function main() {
         return { id, label, detected, available, hint, connected, ...(id === 'codex' && connected ? { alerts: codexAlertsInstalled(client) } : {}) };
       });
       if (values.json) return console.log(JSON.stringify(rows_, null, 2));
-      heading('Agents on this computer');
+      heading('Connected apps');
       const pad = Math.max(...rows_.map(row => row.label.length)) + 3;
       for (const row of rows_) console.log(`  ${row.connected ? theme.good('●') : theme.muted('○')} ${row.label.padEnd(pad)}${theme.muted(row.connected ? 'connected' : row.hint)}${row.alerts === false ? theme.warn(' · alerts not set up') : ''}`);
       console.log();
