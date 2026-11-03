@@ -15,6 +15,8 @@ export default async function clankerDiscussions(ctx, connection) {
     try {
       const work = await localCall(connection.home, 'discussion_work', {}, connection);
       if (!valid(work) || stopped) return;
+      const current = new Map(work.map(item => [item.id, `${item.revision}:${item.kind}`]));
+      for (const [id, key] of delivered) if (current.get(id) !== key) delivered.delete(id);
       const pending = new Map();
       for (const item of work) {
         const sessionID = bindings.get(item.id), key = `${item.revision}:${item.kind}`;

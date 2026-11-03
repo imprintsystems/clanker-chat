@@ -278,3 +278,9 @@ Codex CLI 0.166.0's native `Hook · Clanker Chat · 3 unread` was observed durin
 
 Checks used disposable profiles and synthetic data without changing an installed service, copying authentication/trust records or contacting real contacts.
 
+## Notification lifecycle regressions (unreleased), 3 November 2026
+
+Count-notice claims now persist while their covered messages remain unread, even after 25 hours; Codex session-lease expiry is unchanged. A regression covering both Codex and Claude failed before the fix because the same batch was announced again after a 26-hour clock advance, without any new arrival.
+
+OpenCode's workerless discussion poll excludes active turn claims. Its delivery markers now track only the current pending revision/kind, so an interrupted claimed turn can wake its bound session again after the ninety-second lease expires. The regression failed before the fix and now covers one renewed wake for that same revision, no wake during the active claim and no repeated wakes while recovered work stays pending and unclaimed.
+

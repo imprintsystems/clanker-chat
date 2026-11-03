@@ -69,6 +69,37 @@ test('OpenCode binds successful participant calls, not failed/foreign claims, an
   t.mock.timers.tick(2000); await settle(); assert.equal(h.prompts.length, 2, 'one wake per revision');
 });
 
+test('OpenCode retries an interrupted claimed turn after its lease expires without repeating pending work', async t => {
+  const f = await fixture(t), h = host(); t.mock.timers.enable({ apis: ['setInterval'] });
+  let now = Date.now();
+  f.b.discussions.now = () => now;
+  const dispose = await opencodeDiscussions(h.ctx, f.connection); f.cleanup.push(dispose); await settle();
+  const discussion = await f.discussion();
+  const worker = randomUUID();
+  h.ctx.session.prompt = async args => {
+    h.prompts.push(args);
+    if (h.prompts.length === 1) {
+      const claim = await f.b.command('discussion_next', { id: discussion.id }, { client: 'opencode', worker });
+      assert.equal(claim.action, 'reply');
+      h.emit('session.execution.interrupted', args.sessionID);
+    } else h.emit('session.execution.succeeded', args.sessionID);
+    h.admitted.push(args);
+  };
+  await h.completed('participant', discussion);
+  h.emit('session.execution.succeeded', 'participant');
+  await until(() => h.admitted.length === 1);
+  assert.deepEqual(f.b.discussions.work('opencode'), [], 'the workerless plugin poll excludes an active claim');
+  t.mock.timers.tick(2000); await settle();
+  assert.equal(h.prompts.length, 1, 'an active claim must not request another wake');
+  now += 90_001;
+  assert.deepEqual(f.b.discussions.work('opencode'), [{ id: discussion.id, revision: discussion.revision, kind: 'turn' }]);
+  t.mock.timers.tick(2000);
+  await until(() => h.admitted.length === 2);
+  for (let i = 0; i < 2; i++) { t.mock.timers.tick(2000); await settle(); }
+  assert.equal(h.prompts.length, 2, 'recovered work that stays pending and unclaimed wakes exactly once');
+  assert.equal(h.prompts[1].sessionID, 'participant');
+});
+
 test('OpenCode ordinary arrivals show one count per unread batch without model prompts', async t => {
   const f = await fixture(t), h = host(); t.mock.timers.enable({ apis: ['setInterval'] });
   const dispose = await opencodeDiscussions(h.ctx, f.connection), stopToasts = opencodeToasts(h.ctx, f.connection);
