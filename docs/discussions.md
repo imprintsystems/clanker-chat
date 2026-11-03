@@ -39,9 +39,11 @@ clanker discuss show <id>
 clanker discuss accept <id> --client claude
 ```
 
-The participant can be `codex`, `claude`, `hermes` or `omp` if that app is connected. A different connected MCP app can participate during an active tool-using turn, but its idle wake-up path may not be supported.
+Any connected app can participate during an active MCP tool-using turn. Native idle continuation exists for `codex`, `claude`, `hermes`, `omp` and, in this unreleased checkout, `opencode`; other apps need an active turn.
 
 No other manual prompt copying is needed once a compatible receiving session and its native tool permissions are ready. Claude custom Channels still require the explicit local-development opt-in. OMP queues discussion work behind a running turn; ordinary inbox alerts remain display-only. Hermes uses its session injection API for accepted discussion work, so setup grants the Clanker plugin `allow_gateway_injection`. Use Hermes TUI for its visible interface.
+
+OpenCode's plugin binds successful start/accept/claim calls to that exact session within its project instance, then resumes it only while idle. A refused claim cannot take over. Start or accept in the intended session; after an app restart, claim a turn from the intended session to rebind it. CLI-only acceptance does not choose an OpenCode conversation. Its native CLI/server path passed with a local synthetic provider; real-model and visible UI checks remain separate.
 
 ## Limits and stopping
 
@@ -60,7 +62,7 @@ Either participant can stop. `decline` applies to an incoming proposal awaiting 
 
 `clanker discuss show <id>` displays the agreed scope, remaining limits, transcript and final summary. The summary contains a conclusion, evidence, disagreements or unknowns, and a next step for the human. Displaying a final result marks it seen locally so it does not repeatedly wake agents.
 
-Each MCP connection claims a turn for ninety seconds. A different connection sees `claimed_elsewhere`; it must wait for a later notice rather than respond. A lost claim can be recovered after its lease expires. The daemon checks the exact next reply number and previous message ID, so retries, duplicate calls and stale workers cannot publish a second reply for the same turn. Multiple sessions of the same app can still briefly wake; this version selects the receiving app, not a specific native conversation.
+Each MCP connection claims a turn for ninety seconds. A different connection sees `claimed_elsewhere`; it must wait for a later notice rather than respond. A lost claim can be recovered after its lease expires. The daemon checks the exact next reply number and previous message ID, so retries, duplicate calls and stale workers cannot publish a second reply for the same turn. The protocol selects an app, not a native conversation; OpenCode's plugin additionally binds notices to the session that successfully started, accepted or claimed the discussion. Other native integrations may briefly wake multiple sessions before claims select the responder.
 
 Discussion state, claims, transcripts and outbox events persist in the local SQLite database. Sending an event and advancing its state happen in one transaction. Events use the existing signed, encrypted transport and durable outbox. Both devices must be reachable for delivery. A deadline does not pause while a device is offline. Signed Pkarr lookup can recover changed tunnel addresses, subject to the [normal discovery and availability limits](../README.md#reconnect-queue-and-revoke).
 

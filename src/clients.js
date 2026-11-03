@@ -93,7 +93,7 @@ function codexEntry(client, run) {
   }
 }
 function shape(client, launch) {
-  if (client.id === 'opencode') return { type: 'local', command: [launch.command, ...launch.args], environment: launch.env, enabled: true };
+  if (client.id === 'opencode') return { type: 'local', command: [launch.command, ...launch.args], environment: launch.env, disabled: false };
   return { ...(['omp', 'vscode', 'cursor'].includes(client.id) ? { type: 'stdio' } : {}), command: launch.command, args: launch.args, env: launch.env, ...(client.id === 'hermes' ? { enabled: true } : {}) };
 }
 function owned(entry, launch) {
@@ -106,12 +106,19 @@ function owned(entry, launch) {
 }
 export function clientIsConfigured(client, launch, { run = runDefault } = {}) {
   try {
-    const entry = client.format === 'codex' ? codexEntry(client, run) : loadConfig(client).value[client.key]?.clanker;
-    return !!entry && owned(entry, launch);
+    const config = client.format === 'codex' ? null : loadConfig(client).value;
+    const entry = client.format === 'codex' ? codexEntry(client, run) : client.id === 'opencode' ? config.mcp?.servers?.clanker ?? config.mcp?.clanker : config[client.key]?.clanker;
+    return !!entry && owned(entry, launch) && (client.id !== 'opencode' || owned(config.mcp?.clanker, launch));
   } catch { return false; }
 }
 export function configureClient(client, launch, home, { remove = false, run = runDefault } = {}) {
   if (!client.available) throw new Error(`${client.label}: ${client.hint}`);
+  if (!remove && client.id === 'opencode' && client.executable) {
+    let version;
+    try { version = /^(?:opencode v)?(\d+)\./.exec(run(client.executable, ['--version']).trim())?.[1]; }
+    catch { throw new Error('The installed OpenCode version could not be read. Existing settings were left unchanged.'); }
+    if (version !== '2') throw new Error(`${version ? `OpenCode ${version}` : 'This OpenCode version'} is unsupported by this integration. Install OpenCode 2; existing settings were left unchanged.`);
+  }
   if (client.format === 'codex') {
     const existing = codexEntry(client, run);
     if (!owned(existing, launch)) throw new Error('A different clanker server exists in Codex. It was left unchanged.');
@@ -123,6 +130,23 @@ export function configureClient(client, launch, home, { remove = false, run = ru
   }
   const { original, document, value } = loadConfig(client);
   if (value[client.key] !== undefined && (typeof value[client.key] !== 'object' || value[client.key] === null || Array.isArray(value[client.key]))) throw new Error(`${client.label} has an unsupported MCP configuration. It was left unchanged.`);
+  if (client.id === 'opencode') {
+    const servers = value.mcp?.servers;
+    if (servers !== undefined && (!servers || typeof servers !== 'object' || Array.isArray(servers))) throw new Error('OpenCode has an unsupported MCP configuration. It was left unchanged.');
+    const legacy = value.mcp?.clanker, existing = servers?.clanker;
+    if (!owned(existing, launch) || !owned(legacy, launch)) throw new Error('A different clanker server exists in OpenCode. It was left unchanged.');
+    const desired = remove ? undefined : { ...(existing ?? legacy), ...shape(client, launch) };
+    if (desired) {
+      delete desired.enabled;
+      if (typeof desired.timeout === 'number') desired.timeout = { catalog: desired.timeout, execution: desired.timeout };
+    }
+    let next = original || '{}\n';
+    if (!remove || existing !== undefined) next = applyEdits(next, modify(next, ['mcp', 'servers', 'clanker'], desired, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+    if (legacy !== undefined) next = applyEdits(next, modify(next, ['mcp', 'clanker'], undefined, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+    installNotifications(client, launch, home, { remove, write: atomicConfigWrite });
+    atomicConfigWrite(client, original, next, home);
+    return;
+  }
   const existing = value[client.key]?.clanker;
   if (!owned(existing, launch)) throw new Error(`A different clanker server exists in ${client.label}. It was left unchanged.`);
   const desired = remove ? undefined : { ...existing, ...shape(client, launch) };
@@ -152,8 +176,8 @@ export function configureClient(client, launch, home, { remove = false, run = ru
     // OMP's native denylist wins over the entry's enabled setting.
     if (!remove && client.id === 'omp' && Array.isArray(value.disabledServers) && value.disabledServers.includes('clanker')) next = applyEdits(next, modify(next, ['disabledServers'], value.disabledServers.filter(name => name !== 'clanker'), { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
   }
-  if (remove && !existing) return;
   installNotifications(client,launch,home,{remove,write:atomicConfigWrite});
+  if (remove && !existing) return;
   atomicConfigWrite(client, original, next, home);
 }
 export function applyClientSelection(home, selected, launch, clients, options = {}) {

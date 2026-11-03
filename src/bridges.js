@@ -4,6 +4,7 @@ import { statSync, mkdtempSync } from 'node:fs';
 import { open, rm } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { messageSchema, bridgeAgent, bridgeTopic, BRIDGE_TEXT } from './protocol.js';
 import { contactName } from './store.js';
@@ -22,24 +23,31 @@ const normalize = text => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').tr
 const bridgeText = z.string().trim().min(1).max(BRIDGE_TEXT);
 
 // How each app answers one question without a person: prompt in, answer out.
-// Read-only keeps the app to reading its own files, with no shell, no writes
-// and no MCP servers, so a question cannot make it act.
+// Read-only uses each host's tool restrictions: local reads, no shell, writes
+// or MCP calls. These are host permissions, not an OS sandbox.
 export const RUNNERS = {
   claude: { label: 'Claude Code', binaries: ['claude'], input: 'stdin',
     args: tools => ['-p', '--no-session-persistence', '--output-format', 'text', ...(tools === 'read-only' ? ['--tools', 'Read,Grep,Glob', '--strict-mcp-config', '--permission-mode', 'dontAsk'] : [])] },
   codex: { label: 'Codex', binaries: ['codex'], input: 'stdin', output: 'file',
     args: (tools, out) => ['exec', '--skip-git-repo-check', '--ephemeral', '--color', 'never', '-o', out, ...(tools === 'read-only' ? ['--sandbox', 'read-only', '-c', 'mcp_servers={}'] : []), '-'] },
   hermes: { label: 'Hermes', binaries: ['hermes'], input: 'stdin',
-    args: tools => ['chat', '--oneshot', '-Q', ...(tools === 'read-only' ? ['--toolsets', 'safe'] : []), '--query-file', '-'] },
+    args: tools => ['chat', '--oneshot', '-Q', ...(tools === 'read-only' ? ['--toolsets', 'clanker-read-only'] : []), '--query-file', '-'] },
   omp: { label: 'Oh My Pi', binaries: ['omp'], input: 'arg',
     args: tools => ['-p', '--no-session', ...(tools === 'read-only' ? ['--tools=read,grep,glob'] : [])] },
   cursor: { label: 'Cursor', binaries: ['cursor-agent', 'agent'], input: 'arg',
-    args: tools => ['-p', '--trust', '--output-format', 'text', ...(tools === 'read-only' ? ['--mode', 'ask'] : [])] }
+    args: tools => ['-p', '--trust', '--output-format', 'text', ...(tools === 'read-only' ? ['--mode', 'ask'] : [])] },
+  opencode: { label: 'OpenCode 2', binaries: ['opencode'], input: 'stdin', major: 2, command: process.execPath,
+    args: (tools, out, id, folder, executable) => [fileURLToPath(new URL('./integrations/opencode-run.js', import.meta.url)), executable, tools],
+    answer: stdout => {
+      const events = stdout.split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
+      if (events.some(event => event.type === 'error' || event.error)) throw new Error('OpenCode reported an error.');
+      return events.filter(event => event.type === 'text' && typeof event.part?.text === 'string').map(event => event.part.text).join('\n');
+    } }
 };
 // custom: a command the owner chose reads the question on stdin and prints the
-// answer. self: no runner; the agent answers with clanker_bridge_answer when it runs.
+// answer. self: no runner; an active agent checks bridge_wait, then bridge_answer.
 const APPS = [...Object.keys(RUNNERS), 'custom', 'self'];
-export const ENV_KEYS = ['PATH', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'HERMES_HOME', 'OMP_PROFILE', 'PI_PROFILE', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR'];
+export const ENV_KEYS = ['PATH', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'HERMES_HOME', 'OMP_PROFILE', 'PI_PROFILE', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'];
 // How a side answers, in words for its owner. The executable path and environment stay local.
 const describe = runner => ({ app: runner.app, label: RUNNERS[runner.app]?.label || (runner.app === 'custom' ? 'your command' : 'the agent itself'), tools: runner.tools, ...(runner.folder ? { folder: runner.folder } : {}), ...(runner.command ? { command: runner.command } : {}) });
 const runnerSchema = z.object({
@@ -421,13 +429,22 @@ export class Bridges {
     else {
       const preset = RUNNERS[runner.app];
       if (preset.output === 'file') { scratch = mkdtempSync(join(tmpdir(), 'clanker-bridge-')); out = join(scratch, 'answer.txt'); }
-      [command, args] = [runner.executable, preset.args(runner.tools, out)];
+      [command, args] = [preset.command || runner.executable, preset.args(runner.tools, out, job.ask, runner.folder, runner.executable)];
       if (preset.input === 'arg') { args = [...args, prompt]; input = ''; }
     }
     let result;
     try {
-      result = await execute(command, args, { cwd: runner.folder, env, input, timeout: this.timeout, spawner: this.spawner, track: stop => this.running.set(row.id, stop) });
+      const options = { cwd: runner.folder, env: { ...env, PWD: runner.folder }, timeout: this.timeout, spawner: this.spawner, track: stop => this.running.set(row.id, stop) };
+      const major = RUNNERS[runner.app]?.major;
+      const version = major && await execute(runner.executable, ['--version'], { ...options, input: '', timeout: Math.min(this.timeout, 10_000) });
+      result = major && (version.code !== 0 || Number(version.stdout.trim().match(/^(?:opencode v)?(\d+)\./)?.[1]) !== major)
+        ? { code: -1, stdout: '', stderr: `This runner requires OpenCode ${major}.x. Check the installed opencode binary.` }
+        : await execute(command, args, { ...options, input });
       if (out) { try { result.stdout = await readCapped(out); } catch { /* No answer file means no answer. */ } }
+      if (RUNNERS[runner.app]?.answer) {
+        try { result.stdout = RUNNERS[runner.app].answer(result.stdout); }
+        catch { result = { code: -1, stdout: '', stderr: 'The app returned an invalid answer stream.' }; }
+      }
     } finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
     const run = !this.stopped && this.store.prepare('SELECT state,attempts FROM bridge_runs WHERE ask=?').get(job.ask);
     if (!run || run.state !== 'running') return;

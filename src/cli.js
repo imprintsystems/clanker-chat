@@ -119,7 +119,7 @@ async function main() {
   switch (command) {
     case 'discuss': {
       const selected=values.client?.flatMap(value=>value.split(','));
-      const oneClient=()=>{if(selected?.length!==1)throw new Error('Choose one connected agent with --client codex, claude, hermes or omp.');return selected[0];};
+      const oneClient=()=>{if(selected?.length!==1)throw new Error('Choose one connected agent with --client <app-id>. See clanker agents --list.');return selected[0];};
       let result;
       if(target==='ask')result=await call('discussion_start',{to:words[0],question:words.slice(1).join(' '),evidence:values.file?readFileSync(values.file,'utf8'):'',client:oneClient(),...(values['max-turns']?{maxTurns:Number(values['max-turns'])}:{}),...(values.minutes?{minutes:Number(values.minutes)}:{})});
       else if(target==='list')result=await call('discussion_list');

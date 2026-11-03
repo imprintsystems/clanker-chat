@@ -5,14 +5,14 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parse } from 'jsonc-parser';
 import { parse as yaml } from 'yaml';
-import { discoverClients, applyClientSelection, configureClient } from '../src/clients.js';
-import { readAccess, authorizeClient } from '../src/access.js';
+import { discoverClients, applyClientSelection, configureClient, refreshClients } from '../src/clients.js';
+import { readAccess, authorizeClient, clientGrant, enableClient } from '../src/access.js';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'cc-config-')); t.after(() => rmSync(root, { recursive: true, force: true }));
   const systemHome = join(root, 'user'); const home = join(root, 'clanker'); mkdirSync(systemHome, { recursive: true });
   const bin = join(root, 'bin'); mkdirSync(bin);
-  for (const name of ['hermes', 'codex', 'claude', 'omp', 'opencode']) writeFileSync(join(bin, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  for (const name of ['hermes', 'codex', 'claude', 'omp', 'opencode']) writeFileSync(join(bin, name), name === 'opencode' ? '#!/bin/sh\necho "opencode v2.2.5"\n' : '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const clients = discoverClients({ systemHome, platform: 'darwin', env: { PATH: bin } });
   const launch = { command: '/opt/homebrew/opt/clanker/bin/clanker', args: ['mcp'], env: { CLANKER_HOME: home } };
   const save = (client, body) => { mkdirSync(dirname(client.file), { recursive: true }); writeFileSync(client.file, body); };
@@ -76,9 +76,9 @@ test('Hermes YAML comments, models and other MCP servers survive connection, upd
   const final = yaml(readFileSync(hermes.file, 'utf8')); assert.equal(final.mcp_servers.clanker, undefined); assert.equal(final.model, 'hermes-model');
   assert.ok(existsSync(join(home, 'backups/hermes')));
 });
-test('OMP, Claude, Cursor and VS Code JSON preserve comments and unrelated entries; OpenCode gets native format', t => {
+test('OMP, Claude, Cursor and VS Code JSON preserve comments and unrelated entries', t => {
   const { home, clients, launch, save } = fixture(t);
-  for (const id of ['omp', 'claude', 'claude-desktop', 'cursor', 'vscode', 'opencode']) {
+  for (const id of ['omp', 'claude', 'claude-desktop', 'cursor', 'vscode']) {
     const client = clients.find(c => c.id === id);
     const body = `{\n  // keep this comment\n  "unrelated": {"value": 42},\n  "${client.key}": {"other": {"command": "tool"}},\n  "disabledServers": ["clanker", "other"]\n}\n`;
     save(client, body);
@@ -86,11 +86,55 @@ test('OMP, Claude, Cursor and VS Code JSON preserve comments and unrelated entri
     const raw = readFileSync(client.file, 'utf8'); assert.match(raw, /keep this comment/); const config = parse(raw);
     assert.equal(config.unrelated.value, 42); assert.equal(config[client.key].other.command, 'tool');
     const entry = config[client.key].clanker;
-    if (id === 'opencode') { assert.deepEqual(entry.command, [launch.command, 'mcp']); assert.equal(entry.environment.CLANKER_CLIENT_ID, id); }
-    else assert.equal(entry.env.CLANKER_CLIENT_ID, id);
+    assert.equal(entry.env.CLANKER_CLIENT_ID, id);
     if (['omp', 'cursor', 'vscode'].includes(id)) assert.equal(entry.type, 'stdio', id);
     if (id === 'omp') assert.deepEqual(config.disabledServers, ['other']);
   }
+});
+
+test('refresh refuses an installed OpenCode 1 without migrating its working config or revoking its credential', t => {
+  const { home, clients, launch, save } = fixture(t); const client = clients.find(c => c.id === 'opencode');
+  const grant = clientGrant(home, 'opencode', 'OpenCode'); enableClient(home, 'opencode', grant);
+  const entry = { type: 'local', command: [launch.command, ...launch.args], environment: { ...launch.env, CLANKER_CLIENT_ID: 'opencode', CLANKER_CLIENT_TOKEN: grant.token }, enabled: true };
+  const original = `{\n// working version-one settings\n"mcp":{"clanker":${JSON.stringify(entry)}},"model":"keep-my-model"\n}`;
+  save(client, original); writeFileSync(client.executable, '#!/bin/sh\necho "1.19.4"\n');
+  const [result] = refreshClients(home, launch, [client]);
+  assert.equal(result.state, 'error');
+  assert.equal(readFileSync(client.file, 'utf8'), original);
+  authorizeClient(home, 'opencode', grant.token);
+  assert.equal(existsSync(join(dirname(client.file), 'plugins/clanker-chat')), false);
+});
+
+test('OpenCode native conflicts cannot be hidden by an ignored legacy entry; owned legacy migration preserves user servers', t => {
+  const { home, clients, launch, save } = fixture(t); const client = clients.find(c => c.id === 'opencode');
+  const owned = { type: 'local', command: [launch.command, ...launch.args], environment: launch.env, enabled: true, timeout: 12000 };
+  const conflict = JSON.stringify({ mcp: { clanker: owned, servers: { clanker: { type: 'local', command: ['different'] } } } });
+  save(client, conflict);
+  assert.equal(applyClientSelection(home, ['opencode'], launch, [client])[0].state, 'error');
+  assert.equal(readFileSync(client.file, 'utf8'), conflict);
+  assert.equal(readAccess(home).clients.opencode, undefined, 'ignored legacy settings must not enable a grant');
+  const other = { type: 'remote', url: 'https://example.invalid/mcp', disabled: true };
+  save(client, `{\n// my native servers\n"mcp":{"clanker":${JSON.stringify(owned)},"servers":{"other":${JSON.stringify(other)}}},"model":"my-model"\n}\n`);
+  assert.equal(applyClientSelection(home, ['opencode'], launch, [client])[0].state, 'connected');
+  const raw = readFileSync(client.file, 'utf8'), config = parse(raw);
+  assert.match(raw, /my native servers/); assert.deepEqual(config.mcp.servers.other, other); assert.equal(config.model, 'my-model');
+  assert.equal(config.mcp.clanker, undefined, 'the ignored legacy entry is removed, not retained as an alias');
+  const current = config.mcp.servers.clanker;
+  authorizeClient(home, 'opencode', current.environment.CLANKER_CLIENT_TOKEN);
+  assert.equal(current.disabled, false); assert.equal(current.enabled, undefined);
+  assert.deepEqual(current.timeout, { catalog: 12000, execution: 12000 });
+  const plugin = join(dirname(client.file), 'plugins/clanker-chat');
+  writeFileSync(join(plugin, 'user-owned.txt'), 'keep me');
+  assert.equal(applyClientSelection(home, [], launch, [client])[0].state, 'disconnected');
+  assert.equal(readFileSync(join(plugin, 'user-owned.txt'), 'utf8'), 'keep me');
+  assert.equal(existsSync(join(plugin, 'index.js')), false); assert.equal(existsSync(join(plugin, 'tui.js')), false);
+  assert.deepEqual(parse(readFileSync(client.file, 'utf8')).mcp.servers.other, other);
+  assert.equal(applyClientSelection(home, ['opencode'], launch, [client])[0].state, 'connected');
+  rmSync(join(plugin, 'user-owned.txt'));
+  // A host/user can remove MCP settings first; disconnect must still remove our package.
+  save(client, '{"mcp":{"servers":{}}}');
+  assert.equal(applyClientSelection(home, [], launch, [client])[0].state, 'disconnected');
+  assert.equal(existsSync(plugin), false, 'empty owned package must not remain in native auto-discovery');
 });
 test('malformed settings and conflicting servers stay byte-for-byte unchanged', t => {
   const { home, clients, launch, save } = fixture(t);

@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, unlinkSync, rmdirSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { parse, modify, applyEdits } from 'jsonc-parser';
 
@@ -33,6 +33,20 @@ export function codexAlertsInstalled(client) {
 export function installNotifications(client, launch, home, { remove=false, write } = {}) {
   if (client.id === 'omp') managedFile(join(dirname(client.file),'extensions/clanker-chat.js'),readFileSync(join(assets,'omp.js'),'utf8'),home,client,remove,write);
   if (client.id === 'hermes') for (const name of ['plugin.yaml','__init__.py']) managedFile(join(dirname(client.file),'plugins/clanker-chat',name),readFileSync(join(assets,'hermes',name),'utf8'),home,client,remove,write);
+  if (client.id === 'opencode') {
+    const connection = { home, id: 'opencode', token: launch.env.CLANKER_CLIENT_TOKEN };
+    // Node realpaths modules into the Cellar; opt survives upgrades and cleanup.
+    const modules = process.env.CLANKER_BREW_FORMULA && launch.command === process.env.CLANKER_EXECUTABLE
+      ? resolve(launch.command, '../../libexec/src/integrations') : assets;
+    for (const [entry, source, id] of [['index.js', 'opencode.js', 'clanker-chat'], ['tui.js', 'opencode-tui.js', 'clanker-chat.tui']]) {
+      const contents = `import setup from ${JSON.stringify(pathToFileURL(join(modules, source)).href)};\nexport default { id: ${JSON.stringify(id)}, setup: context => setup(context, ${JSON.stringify(connection)}) };\n`;
+      managedFile(join(dirname(client.file), 'plugins/clanker-chat', entry), contents, home, client, remove, write);
+    }
+    if (remove) {
+      try { rmdirSync(join(dirname(client.file), 'plugins/clanker-chat')); }
+      catch (error) { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error; }
+    }
+  }
   if (client.id !== 'codex') return;
   const file=join(dirname(client.file),'hooks.json');const original=existsSync(file)?readFileSync(file,'utf8'):'';const errors=[];
   const config=parse(original||'{}',errors,{allowTrailingComma:true});

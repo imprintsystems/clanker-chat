@@ -2,6 +2,7 @@
 import contextvars
 import json
 import logging
+import os
 import threading
 import re
 
@@ -9,6 +10,14 @@ log = logging.getLogger(__name__)
 
 
 def register(ctx):
+    # Register for every host process, including a gateway started before a
+    # bridge session. A session's selected toolset, not gateway environment,
+    # decides which native tools the model receives.
+    from toolsets import create_custom_toolset
+    create_custom_toolset('clanker-read-only', 'Read local files for one bridge answer',
+                          tools=['read_file', 'search_files'])
+    if os.environ.get('CLANKER_BRIDGE_RUN'):
+        return  # An answering process never starts inbox/discussion listeners.
     sessions = {}
     lock = threading.Lock()
 

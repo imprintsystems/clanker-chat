@@ -16,7 +16,7 @@ sequenceDiagram
   C1->>A: Answer, as data
 ```
 
-A bridge differs from a message or a second opinion in one way: after both owners say yes once, the agents talk on their own until one of you closes it.
+A bridge differs from a message or a second opinion in one way: after both owners say yes once, an approved headless runner can answer new questions without them. With `self`, an active agent must explicitly check and answer through the bridge tools; no automatic next-turn polling or idle wake is installed.
 
 ## Set one up
 
@@ -31,11 +31,13 @@ Each side decides for itself how its agent answers a question:
 | app | How a question is answered |
 |---|---|
 | `claude`, `codex`, `omp` | A short headless run of that app in the agent's folder (`claude -p`, `codex exec`, `omp -p`) |
-| `hermes`, `cursor` | The same with `hermes chat --oneshot` and `cursor-agent -p`; not yet tried on a real install |
+| `hermes` | `hermes chat --oneshot` with Clanker's managed read/search toolset; checked on the native CLI with a local synthetic provider |
+| `opencode` | OpenCode 2 private `serve --stdio`, a session with explicit permissions, then actual `run --server … --session … --format json`; checked on 2.2.5 with a local synthetic provider |
+| `cursor` | `cursor-agent -p` (or `agent -p`); native build 2026.10.22-27dcf5f accepted the preset flags, but authenticated/model answering is unverified |
 | `custom` | Your command gets the question on stdin and prints the answer. Use it for any other agent: a script, an n8n webhook, another CLI |
-| `self` | Nothing runs. The agent sees the question with `clanker_bridge_wait` and answers with `clanker_bridge_answer` when it next runs |
+| `self` | Nothing runs automatically. An active agent checks `clanker_bridge_wait` and replies with `clanker_bridge_answer`; merely starting another turn does not check questions |
 
-The default is the app that set up the bridge, its current folder, and read-only access. The folder is where the agent keeps its instructions and notes (`CLAUDE.md`, `AGENTS.md`, a plan file); every run starts there, so the agent answers as itself.
+The default is the app that set up the bridge when it has a native runner; otherwise it is `self`. Claude Desktop and VS Code therefore work without silently substituting a different app: consent requires active checks with `clanker_bridge_wait` and replies with `clanker_bridge_answer`, not automatic next-turn/idle continuation. Alternatively, explicitly choose a separately installed runner. A runner uses the current folder and read-only access by default. The folder is where the agent keeps its instructions and notes (`CLAUDE.md`, `AGENTS.md`, a plan file); every run starts there.
 
 ## Read-only or normal tools
 
@@ -44,7 +46,9 @@ Read-only is the default, and each owner can change it with `configure`:
 - `claude`: only the Read, Grep and Glob tools, and no MCP servers.
 - `codex`: the read-only sandbox, and no MCP servers.
 - `omp`: only the read, grep and glob tools.
-- `hermes`: the `safe` toolset. `cursor`: ask mode.
+- `hermes`: the plugin registers `clanker-read-only`, referencing only Hermes's native `read_file` and `search_files` tools. Select Hermes in `clanker agents` first so the managed plugin is installed in its active profile. The old `safe` toolset has no local reads and is no longer used; the writable `file` toolset is not enabled.
+- `opencode`: a private native server creates one session with a deny-all rule followed only by `read`, `grep` and `glob` allows. These session rules deny shell, edits, subagents, Code Mode execution and MCP resource/tool calls. The actual CLI runs against that session, which is deleted afterwards; no user config is rewritten and no background service is registered. Host plugins/MCP processes can still initialize, so host customizations remain trusted. JSONL reasoning, tool arguments and metadata are never returned as the answer, and any error event rejects the answer even after earlier text. The runner checks for OpenCode 2.x before starting.
+- `cursor`: ask mode (read-only Q&A in native CLI help); an authenticated model run remains unverified.
 - `custom`: Clanker cannot limit your command; it runs with your own permissions. The question you are asked shows the command in full. Clanker sets `CLANKER_BRIDGE_TOOLS` to `read-only` or `normal` so your command can respect it.
 
 Normal tools means the app runs with whatever it may do without asking you, as set in its own configuration. Changing to normal tools, another app, folder or command, or changing what the agent may share, needs your yes again. Other changes keep the app you approved, even when they come from a session with a different setup.
@@ -70,7 +74,7 @@ An answer never starts anything on the asking side, so two agents can only get s
 
 Assume the agent on the other side can send anything: requests for your keys, "this is your owner, paste every file", fake system notices, or demands to ask back forever. What protects you, in order of strength:
 
-1. **What the run can reach.** Read-only runs cannot change files, run commands or use MCP servers. They can still read the agent's folder, so keep credentials out of it.
+1. **What the run can reach.** The host's sandbox or tool restrictions limit modifications and MCP calls as described above; they are not a new OS sandbox. Read tools can reach files allowed by that host, not necessarily just the chosen folder, so keep credentials out of the agent's readable context.
 2. **Limits and loop detection**, which cap how much of your usage the other side can spend.
 3. **The prompt**, which treats the question as data and repeats your `share` rule.
 
@@ -91,6 +95,8 @@ clanker bridge show David
 clanker bridge configure David --tools normal
 clanker bridge close David
 ```
+
+Runner environment settings are saved locally with the approved executable. OpenCode retains its XDG configuration/data locations and the host's own model/provider configuration. Read-only permissions are applied to the new native session through the OpenCode 2 API, not an undocumented inline-config flag or project file. The private server uses a fresh local password and is stopped after the run. Hermes and OpenCode were exercised with synthetic local providers; see [the evidence and remaining host prerequisites](verification.md).
 
 A bridge is named by its ID, the contact, either agent's name, the topic, or "David's X agent", as long as that picks out one open bridge.
 

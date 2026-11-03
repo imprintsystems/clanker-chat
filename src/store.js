@@ -157,7 +157,8 @@ export class Store {
     ) ORDER BY seq LIMIT 20`).all(Date.now()).map(row => ({ ...row, payload: JSON.parse(row.payload) }));
   }
   status() {
-    return { identity: this.identity.public, endpoint: this.get('endpoint') || null, unread: this.prepare("SELECT count(*) AS n FROM messages WHERE direction='in' AND read=0").get().n, latest: this.prepare("SELECT coalesce(max(seq),0) AS n FROM messages WHERE direction='in'").get().n, inboxLatest:this.prepare("SELECT coalesce(max(seq),0) AS n FROM messages WHERE direction='in' AND (json_extract(payload,'$.kind')!='discussion' OR json_extract(payload,'$.discussion.type')='proposal') AND (json_extract(payload,'$.kind')!='party' OR json_extract(payload,'$.partyEvent.type')='invite') AND (json_extract(payload,'$.kind')!='bridge' OR json_extract(payload,'$.bridgeEvent.type')='propose')").get().n, queued: this.prepare("SELECT count(*) AS n FROM messages WHERE state='queued'").get().n };
+    const unread = this.prepare("SELECT count(*) AS n,coalesce(min(seq),0) AS first FROM messages WHERE direction='in' AND read=0").get();
+    return { identity: this.identity.public, endpoint: this.get('endpoint') || null, unread: unread.n, unreadFirst: unread.first, latest: this.prepare("SELECT coalesce(max(seq),0) AS n FROM messages WHERE direction='in'").get().n, inboxLatest:this.prepare("SELECT coalesce(max(seq),0) AS n FROM messages WHERE direction='in' AND (json_extract(payload,'$.kind')!='discussion' OR json_extract(payload,'$.discussion.type')='proposal') AND (json_extract(payload,'$.kind')!='party' OR json_extract(payload,'$.partyEvent.type')='invite') AND (json_extract(payload,'$.kind')!='bridge' OR json_extract(payload,'$.bridgeEvent.type')='propose')").get().n, queued: this.prepare("SELECT count(*) AS n FROM messages WHERE state='queued'").get().n };
   }
   revoke(id) {
     const peer = this.peer(id);

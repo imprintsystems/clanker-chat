@@ -4,6 +4,9 @@ import json
 import sys
 import threading
 import time
+import types
+
+sys.modules['toolsets'] = types.SimpleNamespace(create_custom_toolset=lambda *args, **kwargs: None)
 
 spec = importlib.util.spec_from_file_location('clanker_plugin', sys.argv[1])
 plugin = importlib.util.module_from_spec(spec)

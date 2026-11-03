@@ -224,3 +224,30 @@ test('the dialog shows a custom command in full, and a yes stays tied to the pro
   assert.equal(result.isError, true);
   assert.equal(david.store.db.prepare("SELECT count(*) AS n FROM bridges WHERE state='active'").get().n, 0);
 });
+
+test('hosts without a native runner require consent and default to usable self mode, never another app', async t => {
+  const f = await fixture(t);
+  for (const id of ['claude-desktop', 'vscode']) {
+    const client = new Client({ name: `synthetic-${id}`, version: '1.0' }, { capabilities: {} });
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve('src/cli.js'), 'mcp'], cwd: f.folder,
+      env: { ...process.env, CLANKER_HOME: f.people.erik.options.home, CLANKER_CLIENT_ID: id }, stderr: 'pipe' }));
+    t.after(() => client.close());
+    const args = { action: 'propose', to: 'David', topic: `Synthetic ${id} schedule`, agent: id };
+    const pending = await client.callTool({ name: 'clanker_bridge', arguments: args });
+    assert.equal(pending.isError, true);
+    const result = await client.callTool({ name: 'clanker_bridge', arguments: { ...args, userConfirmed: true } });
+    assert.notEqual(result.isError, true);
+    const bridge = JSON.parse(result.content[0].text);
+    assert.equal(bridge.answeredBy.app, 'self');
+    await until(() => f.people.david.bridges.list().some(row => row.id === bridge.id));
+    await f.people.david.command('bridge', { action: 'accept', bridge: bridge.id, agent: 'Source', app: 'self' });
+    await until(() => f.people.erik.bridges.row(bridge.id).state === 'active');
+    const ask = await f.people.david.command('bridge_send', { bridge: bridge.id, text: 'Which synthetic launch day?' });
+    const waiting = await client.callTool({ name: 'clanker_bridge_wait', arguments: { bridge: bridge.id, seconds: 10 } });
+    assert.ok(JSON.parse(waiting.content[0].text).some(item => item.id === ask.id && item.type === 'ask'));
+    const answered = await client.callTool({ name: 'clanker_bridge_answer', arguments: { ask: ask.id, text: 'Thursday, from the active session.' } });
+    assert.notEqual(answered.isError, true);
+    await until(() => f.people.david.bridges.get(bridge.id).transcript.some(item => item.replyTo === ask.id && item.text === 'Thursday, from the active session.'));
+    assert.equal(f.people.erik.store.db.prepare('SELECT count(*) AS n FROM bridge_runs WHERE bridge=?').get(bridge.id).n, 0);
+  }
+});

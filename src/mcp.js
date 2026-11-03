@@ -113,17 +113,17 @@ export async function serveMCP(home) {
   }, 'discussion_reply');
   tool('clanker_discussion_stop', 'Stop a discussion immediately when the local user asks or the evidence cannot answer it within scope. Never accept or widen permissions for a peer.', {id:z.string().uuid()}, 'discussion_stop');
   // Bridges: a lasting link between one of the user's agents and a contact's.
-  // This app, this session's folder and read-only access are the defaults. The
+  // This app's runner, or self when it has none, is the default. The
   // daemon checks the settings before the user is asked, so a yes is never wasted.
   // A custom command runs with the user's own permissions, so the question shows it in full.
-  const answering = ({ app, label, folder, tools, command }) => app === 'self' ? 'answers when it next runs'
+  const answering = ({ app, label, folder, tools, command }) => app === 'self' ? 'answers only when this active agent checks clanker_bridge_wait and replies with clanker_bridge_answer; there is no automatic next-turn or idle continuation'
     : app === 'custom' ? `answers on its own by running this command in ${folder}: ${command} (it runs with your own permissions; Clanker cannot make a command read-only)`
     : `answers on its own using ${label} in ${folder}, with ${tools === 'normal' ? 'its normal tools' : 'read-only access to its files'}`;
   const sharing = share => share ? ` It may share: "${share}".` : ' It may share anything relevant to the topic.';
-  tool('clanker_bridge', 'Bridges are lasting links between one of the user\'s agents and one of a contact\'s agents, so the two can align and ask each other things without either owner in the loop (for example two content agents avoiding clashing posts). Actions: list; get (bridge): settings and transcript; propose (to, topic, agent: the name the contact sees for this agent, optional share and note); accept (bridge, agent), called from the agent that will answer; configure (bridge, then any of app, folder, tools, command, share); resume (bridge) a bridge that paused itself because the agents looked stuck; decline (bridge); close (bridge). app is how this side answers a question without a person: claude, codex, hermes, omp, cursor, custom (command gets the question on stdin and prints the answer) or self (this agent answers with clanker_bridge_answer when it runs). Defaults: this app, this session\'s folder, read-only tools. Proposing, accepting, widening access and resuming need the user\'s yes: ask them, or Clanker shows them a confirmation dialog.', {
+  tool('clanker_bridge', 'Bridges are lasting links between one of the user\'s agents and one of a contact\'s agents, so the two can align and ask each other things without either owner in the loop (for example two content agents avoiding clashing posts). Actions: list; get (bridge): settings and transcript; propose (to, topic, agent: the name the contact sees for this agent, optional share and note); accept (bridge, agent), called from the agent that will answer; configure (bridge, then any of app, folder, tools, command, share); resume (bridge) a bridge that paused itself because the agents looked stuck; decline (bridge); close (bridge). app is how this side answers a question: claude, codex, hermes, omp, cursor, opencode, custom (command gets the question on stdin and prints the answer) or self (an active agent checks clanker_bridge_wait and replies with clanker_bridge_answer; no automatic polling or wake). Defaults: this app if it has a native runner, otherwise self; this session\'s folder; read-only tools. Claude Desktop and VS Code have no native headless runner. Proposing, accepting, widening access and resuming need the user\'s yes: ask them, or Clanker shows them a confirmation dialog.', {
     action: z.enum(['list', 'get', 'propose', 'accept', 'configure', 'resume', 'decline', 'close']), bridge: z.string().optional().describe('Bridge ID, or a contact, agent or topic that names one open bridge'),
     to: z.string().optional(), topic: z.string().max(300).optional(), agent: z.string().max(60).optional(), note: z.string().max(2000).optional(), share: z.string().max(1000).optional().describe('What this agent may tell the other side'),
-    app: z.enum(['claude', 'codex', 'hermes', 'omp', 'cursor', 'custom', 'self']).optional(), folder: z.string().optional(), tools: z.enum(['read-only', 'normal']).optional(), command: z.string().max(2000).optional(), userConfirmed: confirmed
+    app: z.enum([...Object.keys(RUNNERS), 'custom', 'self']).optional(), folder: z.string().optional(), tools: z.enum(['read-only', 'normal']).optional(), command: z.string().max(2000).optional(), userConfirmed: confirmed
   }, async ({ action, userConfirmed, ...args }) => {
     if (action === 'list') return ['bridges', {}];
     if (action === 'get') return ['bridge_get', { bridge: args.bridge }];
@@ -134,7 +134,7 @@ export async function serveMCP(home) {
     }
     const fresh = action !== 'configure';
     const input = { action, ...args, env: Object.fromEntries(ENV_KEYS.filter(key => process.env[key]).map(key => [key, process.env[key]])),
-      ...(fresh && args.app === undefined && RUNNERS[client.id] ? { app: client.id } : {}), ...(fresh && args.folder === undefined ? { folder: process.cwd() } : {}) };
+      ...(fresh && args.app === undefined ? { app: RUNNERS[client.id] ? client.id : 'self' } : {}), ...(fresh && args.folder === undefined ? { folder: process.cwd() } : {}) };
     const check = await call('bridge', { ...input, check: true });
     // Act on the exact contact or bridge the user is asked about, never a name resolved again later.
     const bound = action === 'propose' ? { ...input, to: check.to } : { ...input, bridge: check.id };
