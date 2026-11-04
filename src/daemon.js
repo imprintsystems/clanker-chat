@@ -113,9 +113,10 @@ export class ClankerChat extends EventEmitter {
     this.discovery.tick(this.origin);
   }
   async startTunnel() {
+    const metrics = await freePort();
     await new Promise((resolve, reject) => {
       let logs = ''; let ready = false;
-      const child = spawn(this.options.cloudflared || 'cloudflared', ['tunnel', '--url', `http://127.0.0.1:${this.port}`, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(this.options.cloudflared || 'cloudflared', ['tunnel', '--url', `http://127.0.0.1:${this.port}`, '--metrics', `127.0.0.1:${metrics}`, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] });
       this.tunnel = child;
       const timeout = setTimeout(() => { child.kill(); reject(new Error('Tunnel startup timed out')); }, 45_000);
       const consume = data => {
@@ -127,11 +128,35 @@ export class ClankerChat extends EventEmitter {
       child.stdout.on('data', consume); child.stderr.on('data', consume);
       child.once('error', () => { clearTimeout(timeout); reject(new Error('cloudflared could not start. Install it with brew install cloudflared, or use start --local for local testing.')); });
       child.once('exit', () => {
-        clearTimeout(timeout); this.endpointReady = false;
+        clearTimeout(timeout); clearInterval(this.tunnelCheck); this.endpointReady = false;
         if (!ready) reject(new Error('cloudflared exited before creating a tunnel. Check its configuration and network access.'));
         else if (!this.stopping) { this.emit('warning', 'Tunnel stopped. The background service will restart; foreground users can run start again.'); this.emit('tunnelStopped'); }
       });
     });
+    this.watchTunnel(metrics);
+  }
+  // cloudflared keeps running and retrying when its Quick Tunnel is gone, for example after the computer slept
+  // through Cloudflare's cleanup, and its address then no longer resolves. Its readiness endpoint shows this as no
+  // connection to Cloudflare. Report the inbox offline meanwhile, so no invite carries the dead address, and replace
+  // the tunnel once the connection stays down: the process exits and the restarted service gets a new address.
+  watchTunnel(metrics) {
+    const { every = 15_000, failures = 6 } = this.options.tunnelCheck || {};
+    const child = this.tunnel;
+    let failed = 0, checking = false;
+    this.tunnelCheck = setInterval(async () => {
+      if (checking) return;
+      checking = true;
+      let ready = false;
+      try {
+        const response = await fetch(`http://127.0.0.1:${metrics}/ready`, { signal: AbortSignal.timeout(5_000) });
+        ready = response.ok; await response.body?.cancel();
+      } catch { /* No answer counts as not ready. */ }
+      checking = false;
+      if (this.stopping || child.exitCode !== null || child.signalCode !== null) return;
+      if (ready) { failed = 0; this.endpointReady = true; return; }
+      this.endpointReady = false;
+      if (++failed === failures) { this.emit('warning', 'Tunnel lost its connection to Cloudflare. Replacing it.'); child.kill('SIGKILL'); }
+    }, every);
   }
   async remoteRequest(req, res) {
     try {
@@ -518,7 +543,7 @@ export class ClankerChat extends EventEmitter {
     return this.closing;
   }
   async closeOnce() {
-    this.stopping = true; clearInterval(this.timer); this.emit('closing'); this.bridges?.stop();
+    this.stopping = true; clearInterval(this.timer); clearInterval(this.tunnelCheck); this.emit('closing'); this.bridges?.stop();
     await this.notifications?.close();
     this.tunnel?.kill();
     const closes = [this.admin, this.remote].filter(Boolean).map(server => new Promise(resolve => { server.close(resolve); server.closeIdleConnections(); }));
@@ -530,3 +555,10 @@ export class ClankerChat extends EventEmitter {
   }
 }
 function listen(server, address) { return new Promise((resolve, reject) => { server.once('error', reject); server.listen(address, resolve); }); }
+async function freePort() {
+  const server = net.createServer();
+  await listen(server, { host: '127.0.0.1', port: 0 });
+  const { port } = server.address();
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}

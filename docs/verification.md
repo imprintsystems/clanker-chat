@@ -75,6 +75,8 @@ The expanded source suite passed 22 tests under Node.js 24.22.1. Two added tests
 
 `CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --resilience` passed using real Cloudflare Quick Tunnels and synthetic data. Pausing only a disposable cloudflared process caused delivery to fail while the message remained queued. Resuming it delivered the message exactly once without manual retry. Replacing one disposable daemon and its tunnel preserved its identity, announced the new address to the other daemon, and restored delivery without a new invite. Both test profiles and their tunnels were cleaned up.
 
+A tunnel whose cloudflared process keeps running without a connection to Cloudflare is now detected. One field case: after a laptop slept for about an hour on low battery, cloudflared logged 4,331 failed reconnects over 30 hours while the daemon still reported online and put the dead address into new invites. A source test stands a fake cloudflared behind the readiness check and verifies that the daemon goes offline and refuses invites while the check fails, comes back after a short outage, and kills and replaces the tunnel after a long one. A live run against cloudflared from Homebrew, with the check sped up and the process frozen with `SIGSTOP`, reported offline within 5 seconds and replaced the tunnel after 25 seconds.
+
 No computer was rebooted or put to sleep. No normal Clanker service, device network settings or installed agent configuration was changed. These checks simulate interruptions; actual sleep/wake, login startup and idle notifications in each agent host remain separate checks. Recovery when both addresses change still uses a fresh invitation.
 
 ## Native CLI idle-notification check, 0.2.0 baseline

@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { localCall } from '../src/local.js';
 import { clientGrant, enableClient, disableClient } from '../src/access.js';
+import { ClankerChat } from '../src/daemon.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, description, timeout = 10_000) {
@@ -82,4 +83,33 @@ test('a failed tunnel makes the foreground process exit for a supervisor to rest
   t.after(async () => { await kill(child); rmSync(root, { recursive: true, force: true }); });
   await once(child, 'exit', { signal: AbortSignal.timeout(10_000) });
   assert.equal(child.exitCode, 1); assert.equal(child.signalCode, null);
+});
+
+test('a running tunnel that lost Cloudflare is reported offline, refuses invites, and is replaced', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-tunnel-dead-')); const fake = join(root, 'cloudflared'); const state = join(root, 'state');
+  // Stands in for cloudflared: prints its address, then answers /ready on the --metrics port as the state file says.
+  writeFileSync(fake, `#!${process.execPath}
+const http = require('node:http'), fs = require('node:fs');
+const [host, port] = process.argv[process.argv.indexOf('--metrics') + 1].split(':');
+http.createServer((req, res) => { res.statusCode = fs.readFileSync(${JSON.stringify(state)}, 'utf8') === 'up' ? 200 : 503; res.end(); })
+  .listen(Number(port), host, () => console.log('https://synthetic-tunnel.trycloudflare.com'));
+`, { mode: 0o700 });
+  writeFileSync(state, 'up');
+  const daemon = new ClankerChat({ home: join(root, 'profile'), name: 'Synthetic', cloudflared: fake, discovery: false, tunnelCheck: { every: 40, failures: 25 } });
+  t.after(async () => { await daemon.close(); rmSync(root, { recursive: true, force: true }); });
+  let replaced = false; daemon.on('tunnelStopped', () => { replaced = true; }); daemon.on('warning', () => {});
+  await daemon.start();
+  const home = join(root, 'profile');
+  assert.equal((await localCall(home, 'status')).online, true);
+
+  writeFileSync(state, 'down');
+  await until(async () => !(await localCall(home, 'status')).online, 'offline while Cloudflare is unreachable', 2_000);
+  await assert.rejects(localCall(home, 'invite'), /Tunnel is not running/);
+  writeFileSync(state, 'up');
+  await until(async () => (await localCall(home, 'status')).online, 'online again after a short outage', 2_000);
+  assert.equal(replaced, false);
+
+  writeFileSync(state, 'down');
+  await until(() => replaced, 'tunnel replaced after a long outage', 5_000);
+  assert.equal(daemon.tunnel.signalCode, 'SIGKILL');
 });
