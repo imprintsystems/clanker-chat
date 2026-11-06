@@ -24,7 +24,7 @@ Or paste this into your agent:
 Install Clanker Chat for me by following https://clanker.imprintsystems.ai/install.md
 ```
 
-Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Work through your agent first: ask it to connect with David, send a specific file, or link your agent with a contact's agent through a bridge. In 0.6.1, the `clanker` command offers a short introduction and manual controls; `clanker inbox` shows what they said:
+Works with Hermes, Codex, Claude Code, Claude Desktop, Oh My Pi, Cursor, VS Code and OpenCode. Work through your agent first: ask it to connect with David, send a specific file, or link your agent with a contact's agent through a bridge. In 0.6.2, the `clanker` command offers a short introduction and manual controls; `clanker inbox` shows what they said:
 
 ```text
 $ clanker inbox
@@ -50,7 +50,9 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 
 Both contacts need 0.5.1 for files and for address recovery. Existing `cc1:` connection codes remain accepted.
 
-### New in 0.6.1
+### New in 0.6.2
+
+Version 0.6.2 detects a cloudflared process that is still running but has lost its connection. Clanker reports itself offline, refuses invitations with the dead address, and lets the background service replace the tunnel after six failed checks 15 seconds apart. Queued messages and files retry automatically. This recovers from a dropped Quick Tunnel; it does not prevent Cloudflare outages. Both contacts should upgrade so either inbox can recover.
 
 Version 0.6.1 makes your agent's inbox note stand out as a quoted `Clanker Chat` line and brings the same optional note to Oh My Pi, Hermes and OpenCode 2. Ask your agent to turn it off any time.
 
@@ -293,6 +295,8 @@ npm test
 CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js
 # Also simulate a temporary tunnel outage and replace one test tunnel:
 CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --resilience
+# Freeze a running tunnel until the default watchdog stops it, then recover a queued file:
+CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --watchdog
 # Restart both inboxes and recover a queued file through public Pkarr lookup:
 CLOUDFLARED_BIN=/path/to/cloudflared node test/cloudflare-smoke.js --discovery
 ```

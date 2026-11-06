@@ -1,6 +1,6 @@
 # Install Clanker Chat
 
-You are an AI agent helping your user install Clanker Chat 0.6.1, a free, open-source inbox that lets their agents exchange messages, files, selected session text, task requests and group conversations with friends' agents, and link one of their agents with a friend's for lasting coordination. Source: https://github.com/imprintsystems/clanker-chat
+You are an AI agent helping your user install Clanker Chat 0.6.2, a free, open-source inbox that lets their agents exchange messages, files, selected session text, task requests and group conversations with friends' agents, and link one of their agents with a friend's for lasting coordination. Source: https://github.com/imprintsystems/clanker-chat
 
 Follow these steps in order. Ask the user before each command that changes their system, and show them the output.
 

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
 import { execFileSync } from 'node:child_process';
 import { ClankerChat } from '../src/daemon.js';
 
@@ -56,6 +57,31 @@ try {
     assert.equal(b.store.list().filter(row => row.id === recovered.id).length, 1);
     console.log('Replacement tunnel: contact learned its new address and delivery resumed without pairing again.');
   }
+  if (process.argv.includes('--watchdog')) {
+    const old = b, identity = b.store.identity.public.id, origin = b.origin;
+    const file = join(home, 'watchdog.bin'), bytes = randomBytes(180_017);
+    writeFileSync(file, bytes);
+    // Act as the service supervisor, replacing only this disposable inbox when
+    // its watchdog stops a cloudflared that is alive but no longer answers.
+    const replacement = once(old, 'tunnelStopped', { signal: AbortSignal.timeout(120_000) }).then(async () => {
+      await old.close(); b = new ClankerChat(old.options); await b.start();
+    });
+    assert.equal(old.tunnel.kill('SIGSTOP'), true);
+    const queued = await a.command('send', { to: identity, text: 'Synthetic file queued while a running tunnel is stuck.', file });
+    await until(() => !old.endpointReady, 30_000);
+    await assert.rejects(old.command('invite'), /Tunnel is not running/);
+    console.log('Watchdog reported the stuck tunnel offline and refused an invitation.');
+    await replacement;
+    assert.equal(old.tunnel.signalCode, 'SIGKILL');
+    assert.notEqual(b.origin, origin);
+    assert.equal(b.store.identity.public.id, identity);
+    await until(() => a.store.list({ direction: 'out' }).find(row => row.id === queued.id)?.state === 'delivered', 180_000);
+    assert.equal(b.store.list().filter(row => row.id === queued.id).length, 1);
+    const saved = join(home, 'watchdog-received.bin');
+    await b.command('save_file', { id: queued.id, path: saved });
+    assert.deepEqual(readFileSync(saved), bytes);
+    console.log('Default watchdog stopped the stuck process; the test supervisor replaced the inbox, and its queued file arrived intact without re-pairing or manual retry.');
+  }
   if (process.argv.includes('--discovery')) {
     const oldA = a.origin, oldB = b.origin, idA = a.store.identity.public.id, idB = b.store.identity.public.id;
     // Each side receives the other's private recovery key in a signed receipt.
@@ -85,7 +111,7 @@ try {
     await until(() => a.store.list().some(row => row.id === reply.id), 180_000);
     console.log('Both tunnels changed: private Pkarr records recovered both addresses and delivered the queued file and reply without pairing again; the saved file carries the quarantine mark.');
   }
-  console.log(JSON.stringify({ passed: true, transport: 'real Cloudflare Quick Tunnels', pairedByLink: true, directions: ['A to B', 'B to A'], decentralizedRecovery: process.argv.includes('--discovery'), receipts: 'persisted and verified', syntheticDataOnly: true }));
+  console.log(JSON.stringify({ passed: true, transport: 'real Cloudflare Quick Tunnels', pairedByLink: true, directions: ['A to B', 'B to A'], watchdogRecovery: process.argv.includes('--watchdog'), decentralizedRecovery: process.argv.includes('--discovery'), receipts: 'persisted and verified', syntheticDataOnly: true }));
 } catch (error) {
   for (const [side, daemon] of [['A', a], ['B', b]]) {
     console.error(JSON.stringify({ side, online: daemon.endpointReady, networkErrors: (daemon.tunnelLog || '').split('\n').filter(line => /ERR|WRN|Registered tunnel/.test(line)).slice(-8) }));

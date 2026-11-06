@@ -1,6 +1,10 @@
 // Shown once after an upgrade, by the agent's overview call or the clanker home
 // screen. Two short lines a person would actually want to hear.
 export const NOTES = {
+  '0.6.2': [
+    'Clanker now detects a stuck Cloudflare connection and lets the background service replace its tunnel automatically.',
+    'It reports offline and refuses invitations during the outage. Queued messages and files retry when the connection returns.'
+  ],
   '0.6.1': [
     "Your agent's note about new Clanker messages now stands out as its own quoted line, like `Clanker Chat`: …",
     'Oh My Pi, Hermes and OpenCode now get that note too. Ask your agent to turn it off any time.'
