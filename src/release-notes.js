@@ -1,6 +1,10 @@
 // Shown once after an upgrade, by the agent's overview call or the clanker home
 // screen. Two short lines a person would actually want to hear.
 export const NOTES = {
+  '0.6.4': [
+    'Security fixes from an outside review: a contact can no longer fill your file or message storage, block your invitations, or rename people you know.',
+    'Fixes 0.6.3 asking you to re-approve bridges, and skipping Codex alert updates, when an agent app is installed through a symlink such as Homebrew\'s.'
+  ],
   '0.6.3': [
     'Security fixes from an outside review: a contact can no longer fill your file or message storage, block your invitations, or rename people you know.',
     'Pair from a terminal with `clanker pair` (hidden) so invite links stay out of your shell history. Bridges now run only the exact program you approved.'

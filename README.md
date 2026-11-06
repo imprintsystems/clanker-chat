@@ -50,6 +50,10 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 
 Both contacts need 0.5.1 for files and for address recovery. Existing `cc1:` connection codes remain accepted.
 
+### New in 0.6.4
+
+Version 0.6.4 fixes a 0.6.3 regression. Clanker stored agent programs by their resolved, versioned location (for example `/opt/homebrew/Cellar/omp/18.17.0/bin/omp`) instead of the `PATH` entry you approved (`/opt/homebrew/bin/omp`). So bridges approved earlier would have stopped answering until approved again, Codex alert hooks were left un-updated, and every Homebrew upgrade of the agent would have broken new approvals. Clanker now keeps the absolute `PATH` spelling and still checks that it leads to an executable file. Relative `PATH` folders stay refused.
+
 ### New in 0.6.3
 
 Version 0.6.3 fixes the findings of an outside security review. Limits are per contact, so one contact can no longer use up space everyone shares:
@@ -57,7 +61,7 @@ Version 0.6.3 fixes the findings of an outside security review. Limits are per c
 - **Files:** unfinished incoming transfers expire after an hour idle. Each contact can hold at most 16 unfinished transfers, 512 MiB of unfinished files and 1 GiB of received files; the shared 2 GiB limit now counts unfinished transfers only. Blocking a contact removes their unfinished transfers but keeps files you received. A received file belongs to one message and is checked once, not again for every message that names it.
 - **Messages:** each contact can have up to 10,000 unread messages or 32 MiB waiting, and 100,000 messages or 256 MiB stored in total; beyond that their inbox gets a clear refusal (HTTP 507) and nobody else's messages are touched. Read messages and finished conversations are removed after 90 days; unread messages, open tasks and live discussions and bridges are kept.
 - **Invitations:** malformed requests from strangers no longer lock out a valid invite. `clanker pair` asks for the link in a hidden prompt and `clanker pair -` reads it from standard input, so it stays out of the process list and shell history.
-- **Bridges and setup:** Clanker finds programs only in absolute `PATH` folders and stores the exact file you approved. A bridge approved under an older release with a relative program path asks for approval again.
+- **Bridges and setup:** Clanker finds programs only in absolute `PATH` folders and stores the absolute path you approved. A bridge approved under an older release with a relative program path asks for approval again.
 - **Display:** names, file names and messages can no longer use invisible direction or terminal control characters to disguise what you see. An invalid timestamp from a contact shows as unknown instead of breaking your inbox.
 - **Parties:** a party owner cannot rename people you already know; names only the owner vouches for are labeled as such. Each contact can have at most five pending party invitations to you, and they expire after seven days.
 - **Release builds** are reproducible from the Git tag; see [publication checks](docs/publication-check.md).

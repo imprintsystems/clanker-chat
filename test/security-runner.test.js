@@ -33,15 +33,18 @@ test('findExecutable ignores empty and relative PATH entries, directories and no
   mkdirSync(blocked); mkdirSync(safe); mkdirSync(join(blocked, 'codex'));
   executable(join(safe, 'codex'));
   writeFileSync(join(blocked, 'claude'), 'not executable', { mode: 0o644 });
-  assert.equal(findExecutable('codex', `bin${delimiter}.${delimiter}${delimiter}${blocked}${delimiter}${safe}`), realpathSync(join(safe, 'codex')));
+  assert.equal(findExecutable('codex', `bin${delimiter}.${delimiter}${delimiter}${blocked}${delimiter}${safe}`), join(safe, 'codex'));
   assert.equal(findExecutable('claude', blocked), null);
   assert.equal(findExecutable('codex', `bin${delimiter}.${delimiter}`), null);
   assert.equal(executableSearchPath(`.${delimiter}${safe}${delimiter}bin${delimiter}`), safe);
+  // A package manager's symlink keeps its spelling, so upgrades don't revoke approvals.
   symlinkSync(join(safe, 'codex'), join(blocked, 'alias'));
-  assert.equal(findExecutable('alias', blocked), realpathSync(join(safe, 'codex')));
+  assert.equal(findExecutable('alias', blocked), join(blocked, 'alias'));
+  symlinkSync(join(safe, 'missing'), join(blocked, 'dangling'));
+  assert.equal(findExecutable('dangling', blocked), null);
 });
 
-const bridgeScenario = legacy => `
+const bridgeScenario = (legacy, upgrade = false) => `
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -63,6 +66,9 @@ try {
   legacyRunner.executable = 'bin/codex';
   legacyRunner.env.PATH = process.env.PATH;
   store.prepare('UPDATE bridges SET runner=? WHERE id=?').run(JSON.stringify(legacyRunner), id);` : ''}
+  ${upgrade ? `const { unlinkSync, symlinkSync } = await import('node:fs');
+  unlinkSync(JSON.parse(bridges.row(id).runner).executable);
+  symlinkSync(process.env.UPGRADED, JSON.parse(bridges.row(id).runner).executable);` : ''}
   const ask = message({ type: 'ask' }, 'Which day?');
   bridges.receive(peer.id, ask);
   store.prepare("UPDATE bridge_runs SET state='running',attempts=1 WHERE ask=?").run(ask.id);
@@ -80,6 +86,7 @@ function bridgeFixture(t) {
   executable(join(approval, 'bin/codex'), agent('relative-ran', 'relative approval'));
   executable(join(project, 'bin/codex'), agent('project-ran', 'substituted project binary'));
   executable(join(safe, 'real-codex'), agent('approved-ran', 'approved answer'));
+  executable(join(safe, 'real-codex-2'), agent('upgraded-ran', 'upgraded answer'));
   symlinkSync(join(safe, 'real-codex'), join(safe, 'codex'));
   return { root, approval, safe };
 }
@@ -90,10 +97,20 @@ test('bridge approval and execution in different folders never run a relative-PA
   assert.equal(result.projectRan, false);
   assert.equal(result.relativeRan, false);
   assert.equal(result.approvedRan, true);
-  assert.equal(result.runner.executable, join(safe, 'real-codex'));
+  assert.equal(result.runner.executable, join(safe, 'codex'));
   assert.equal(result.consent.executable, result.runner.executable);
   assert.equal(result.runner.env.PATH, safe);
   assert.equal(result.run.state, 'answered');
+  assert.equal(result.widens, false);
+});
+
+test('an approved runner symlink keeps working after its target is upgraded', t => {
+  const { root, approval, safe } = bridgeFixture(t);
+  const result = JSON.parse(child(bridgeScenario(false, true), approval, { PATH: safe, SCENARIO_ROOT: root, UPGRADED: join(safe, 'real-codex-2') }));
+  assert.equal(result.runner.executable, join(safe, 'codex'));
+  assert.equal(result.run.state, 'answered');
+  assert.equal(result.widens, false);
+  assert.equal(existsSync(join(root, 'upgraded-ran')), true);
 });
 
 test('legacy relative bridge runners fail closed and require owner re-approval', t => {
@@ -132,35 +149,35 @@ test('source-mode tunnel startup refuses cloudflared from a relative PATH entry'
   assert.equal(existsSync(join(root, 'project-ran')), false);
 });
 
-test('Homebrew service setup uses a canonical executable and never a relative PATH entry', async t => {
+test('Homebrew service setup uses an absolute executable and never a relative PATH entry', async t => {
   const root = fixture(t), bin = join(root, 'bin'); mkdirSync(bin); executable(join(bin, 'brew'));
   const calls = [];
   await startInstalledService(root, { formula: 'owner/tap/clanker', wait: false, env: { PATH: `bin${delimiter}${bin}` }, run: (command, args) => calls.push({ command, args }) });
-  assert.equal(calls[0].command, realpathSync(join(bin, 'brew')));
+  assert.equal(calls[0].command, join(bin, 'brew'));
   await assert.rejects(startInstalledService(root, { formula: 'owner/tap/clanker', wait: false, env: { PATH: 'bin' }, run: () => assert.fail('must not run') }), /absolute PATH/);
 });
 
-test('bridge setup rejects a symlink target changed after its canonical path was shown for approval', t => {
+test('bridge setup rejects a runner path that changed after it was shown for approval', t => {
   const { root, approval, safe } = bridgeFixture(t);
-  executable(join(safe, 'replacement'));
+  const earlier = join(root, 'earlier'); mkdirSync(earlier);
   child(`import assert from 'node:assert/strict';
-    import { unlinkSync, symlinkSync } from 'node:fs';
     import { join } from 'node:path';
     import { Store } from ${JSON.stringify(source('store.js'))};
     import { Bridges } from ${JSON.stringify(source('bridges.js'))};
     import { newIdentity } from ${JSON.stringify(source('protocol.js'))};
+    import { symlinkSync } from 'node:fs';
     const root = process.env.SCENARIO_ROOT, store = new Store(join(root, 'home'));
     const bridges = new Bridges(store), peer = newIdentity('Contact').public;
     try {
       store.savePeer(peer, 'http://127.0.0.1:1');
       const input = { to: peer.id, topic: 'Schedule', agent: 'Local', app: 'codex', folder: join(root, 'project'), env: { PATH: process.env.PATH } };
       const checked = bridges.check('propose', input);
-      unlinkSync(join(root, 'safe/codex')); symlinkSync(join(root, 'safe/replacement'), join(root, 'safe/codex'));
+      symlinkSync(join(root, 'safe/real-codex-2'), join(root, 'earlier/codex'));
       assert.throws(() => bridges.propose({ ...input, executable: checked.runner.executable }), /changed during approval/);
-    } finally { bridges.stop(); store.close(); }`, approval, { PATH: safe, SCENARIO_ROOT: root });
+    } finally { bridges.stop(); store.close(); }`, approval, { PATH: `${earlier}${delimiter}${safe}`, SCENARIO_ROOT: root });
 });
 
-test('bridge consent shows the canonical executable that will be approved', async t => {
+test('bridge consent shows the absolute executable that will be approved', async t => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'cc-security-consent-')));
   const approval = join(root, 'approval'), safe = join(root, 'safe'), home = join(root, 'home');
   for (const folder of [approval, safe, join(root, 'project')]) mkdirSync(folder);
@@ -181,6 +198,6 @@ test('bridge consent shows the canonical executable that will be approved', asyn
     action: 'propose', to: 'Contact', topic: 'Schedule', agent: 'Local', app: 'codex', folder: join(root, 'project'),
   } });
   assert.equal(questions.length, 1);
-  assert.ok(questions[0].includes(join(safe, 'real-codex')));
+  assert.ok(questions[0].includes(join(safe, 'codex')));
   assert.equal(daemon.store.prepare('SELECT count(*) AS n FROM bridges').get().n, 0);
 });

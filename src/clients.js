@@ -8,12 +8,15 @@ import { parseDocument, isMap } from 'yaml';
 import { readAccess, clientGrant, enableClient, disableClient, writeAccess } from './access.js';
 import { installNotifications } from './host-install.js';
 
+// Keeps the absolute spelling (often a package manager's symlink) so an
+// approval or hook survives the target being upgraded to a new versioned folder.
 export function executablePath(path) {
   if (typeof path !== 'string' || !isAbsolute(path)) return null;
+  const absolute = resolve(path);
   try {
-    const canonical = realpathSync(path);
-    accessSync(canonical, constants.X_OK);
-    return statSync(canonical).isFile() ? canonical : null;
+    const target = realpathSync(absolute);
+    accessSync(target, constants.X_OK);
+    return statSync(target).isFile() ? absolute : null;
   } catch { return null; }
 }
 // Empty and relative entries change meaning when a host switches project folders.
