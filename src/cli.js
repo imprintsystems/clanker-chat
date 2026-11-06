@@ -7,6 +7,7 @@ import { defaultHome } from './store.js';
 import { localCall } from './local.js';
 import { VERSION } from './version.js';
 import { heading, hint, rows, theme, clean, printResult, printHelp, printInvite, failure } from './terminal.js';
+import { displayJson } from './display.js';
 
 async function main() {
   process.umask(0o077);
@@ -29,7 +30,7 @@ async function main() {
   const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && !values.json;
   const cli = fileURLToPath(import.meta.url);
   const peerNames = ['inbox', 'outbox', 'watch', 'discuss'];
-  const output = async (action, value) => values.json ? console.log(JSON.stringify(value, null, 2)) : printResult(action, value, peerNames.includes(action) ? { peers: await localCall(home, 'peers') } : {});
+  const output = async (action, value) => values.json ? console.log(displayJson(value, 2)) : printResult(action, value, peerNames.includes(action) ? { peers: await localCall(home, 'peers') } : {});
   if (values.version) return console.log(`clanker ${VERSION}`);
   if (values.help || command === 'help') return printHelp(command === 'help' ? target || (values.help ? 'help' : undefined) : command, { all: !!values.all, target: command === 'help' ? words[0] : target });
   if (!command) return printHelp();
@@ -189,9 +190,10 @@ async function main() {
       break;
     }
     case 'pair': {
-      let code = target;
-      if (!code && interactive) {
-        const p = await import('./prompts.js'); code = await p.text({ message: 'Paste your invite link', placeholder: 'https://clanker.imprintsystems.ai/connect/#cc1:…' });
+      let code = target === '-' ? undefined : target;
+      if (code) console.error('Invite arguments may appear in process lists and shell history. Prefer `clanker pair` or `clanker pair -` with stdin.');
+      if (!code && process.stdin.isTTY) {
+        const p = await import('./prompts.js'); code = await p.text({ message: 'Paste your invite link (hidden)', secret: true });
         if (p.isCancel(code)) return;
       } else if (!code) {
         const { createInterface } = await import('node:readline/promises'); const input = createInterface({ input: process.stdin, terminal: false });

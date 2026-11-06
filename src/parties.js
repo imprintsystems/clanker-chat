@@ -5,17 +5,27 @@ import { contactName } from './store.js';
 
 const idSchema = z.string().uuid();
 const live = ['joining', 'active'];
-const MAX_OPEN = 10, MAX_INVITES = 20;
+const MAX_OPEN = 10, MAX_INVITES = 20, MAX_INVITES_PER_OWNER = 5;
+const INVITE_MS = 7 * 24 * 60 * 60_000;
 const sendSchema = z.object({ party: z.string().min(1).max(100), text, kind: z.enum(['message', 'session']).default('message') }).strict();
 const STATUS = {
   invited: name => `You are invited to ${name} but have not joined yet.`,
   joining: name => `Waiting for the owner to confirm you joined ${name}.`,
+  expired: name => `The invitation to ${name} expired.`,
   declined: name => `You declined the invitation to ${name}.`,
   left: name => `You left ${name}.`,
   removed: name => `You were removed from ${name}.`,
   closed: name => `${name} was closed.`
 };
 const status = row => STATUS[row.state]?.(row.name) || `${row.name} is ${row.state}.`;
+
+export function expirePartyInvites(store, now = Date.now()) {
+  const expired = store.prepare("SELECT id FROM parties WHERE state='invited' AND created<=?").all(now - INVITE_MS);
+  for (const { id } of expired) {
+    store.prepare("UPDATE parties SET state='expired' WHERE id=?").run(id);
+    store.prepare("UPDATE messages SET read=1 WHERE direction='in' AND json_extract(payload,'$.party')=? AND json_extract(payload,'$.partyEvent.type')='invite'").run(id);
+  }
+}
 
 // A party is a group conversation. Its owner decides who is in it and tells every
 // member; each member then writes to every other member directly. Nothing is
@@ -28,7 +38,9 @@ export class Parties {
   }
   get me() { return this.store.identity.public.id; }
   parse(row) { return row && { ...row, members: JSON.parse(row.members), invited: JSON.parse(row.invited), cards: JSON.parse(row.cards) }; }
+  expireInvites() { expirePartyInvites(this.store, this.now()); }
   row(id) {
+    this.expireInvites();
     const row = this.parse(this.store.prepare('SELECT * FROM parties WHERE id=?').get(id));
     if (!row) throw new Error('Party not found');
     return row;
@@ -36,6 +48,7 @@ export class Parties {
   // By ID, or by name among parties you are invited to or in. "The Checkout
   // party" means Checkout.
   find(ref) {
+    this.expireInvites();
     const key = String(ref ?? '').trim();
     if (idSchema.safeParse(key).success) return this.row(key);
     const open = this.store.prepare("SELECT * FROM parties WHERE state IN ('invited','joining','active')").all().map(row => this.parse(row));
@@ -55,6 +68,14 @@ export class Parties {
     const row = this.store.prepare('SELECT * FROM peers WHERE id=?').get(id);
     return row && { ...row, identity: JSON.parse(row.identity) };
   }
+  // Cards bind keys, not names. An owner cannot rename a known identity, even
+  // in an invitation or the saved member list used for name-based lookup.
+  memberIdentity(identity, row) {
+    const known = identity.id === this.me ? this.store.identity.public
+      : this.contact(identity.id)?.identity || row?.members.find(member => member.id === identity.id);
+    if (known && known.boxKey !== identity.boxKey) throw new Error('Party member encryption key changed');
+    return known || identity;
+  }
   label(id, row) {
     if (id === this.me) return 'You';
     const peer = this.contact(id);
@@ -64,11 +85,14 @@ export class Parties {
   view(row) {
     return {
       id: row.id, name: row.name, role: row.owner === this.me ? 'owner' : 'member', owner: this.label(row.owner, row), state: row.state, revision: row.revision,
-      members: row.members.map(member => ({ id: member.id, name: this.label(member.id, row) })),
+      members: row.members.map(member => {
+        const peer = this.contact(member.id);
+        return { id: member.id, name: this.label(member.id, row), ...((!peer?.nickname && (peer?.partyOnly || (member.id !== this.me && !peer))) ? { nameSource: 'party-owner' } : {}) };
+      }),
       ...(row.invited.length ? { invited: row.invited.map(invite => ({ id: invite.id, name: this.label(invite.id, row) })) } : {})
     };
   }
-  list() { return this.store.prepare('SELECT * FROM parties ORDER BY created DESC LIMIT 50').all().map(row => this.view(this.parse(row))); }
+  list() { this.expireInvites(); return this.store.prepare('SELECT * FROM parties ORDER BY created DESC LIMIT 50').all().map(row => this.view(this.parse(row))); }
   get(ref) { return this.view(this.find(ref)); }
   // True when you and this contact are both in a party that is running.
   shared(id) { return !!this.store.prepare("SELECT 1 FROM parties,json_each(parties.members) AS member WHERE state='active' AND json_extract(member.value,'$.id')=? LIMIT 1").get(id); }
@@ -245,6 +269,7 @@ export class Parties {
   // Everything a contact sends about a party. Throwing rejects the delivery and
   // the sender retries; that covers a message that outruns a membership update.
   receive(peerId, payload) {
+    this.expireInvites();
     return this.store.transaction(() => {
       if (this.store.prepare('SELECT 1 FROM messages WHERE id=?').get(payload.id)) return this.store.insert(peerId, 'in', payload);
       const peer = this.contact(peerId), row = this.parse(this.store.prepare('SELECT * FROM parties WHERE id=?').get(payload.party));
@@ -260,10 +285,12 @@ export class Parties {
         if (!members.some(other => other.id === peer.id) || members.some(other => other.id === this.me) || new Set(members.map(other => other.id)).size !== members.length) throw new Error('Invalid party invitation');
         if (row && row.owner !== peer.id) throw new Error('Party ID belongs to another owner');
         if (row && live.includes(row.state)) { ack(); this.settleInvite(row.id); return true; }
+        const identities = members.map(identity => this.memberIdentity(identity, row));
         if (!row || row.state !== 'invited') {
           if (this.store.prepare("SELECT count(*) AS n FROM parties WHERE state='invited'").get().n >= MAX_INVITES) throw new Error('Too many open party invitations');
-          this.store.prepare("INSERT OR REPLACE INTO parties (id,name,owner,state,revision,members,invitation,created) VALUES (?,?,?,'invited',0,?,?,?)").run(payload.party, event.name, peer.id, JSON.stringify(members), event.invitation, this.now());
-        } else this.save(row.id, { name: event.name, members, invitation: event.invitation });
+          if (this.store.prepare("SELECT count(*) AS n FROM parties WHERE state='invited' AND owner=?").get(peer.id).n >= MAX_INVITES_PER_OWNER) throw new Error('Too many open party invitations from this contact');
+          this.store.prepare("INSERT OR REPLACE INTO parties (id,name,owner,state,revision,members,invitation,created) VALUES (?,?,?,'invited',0,?,?,?)").run(payload.party, event.name, peer.id, JSON.stringify(identities), event.invitation, this.now());
+        } else this.save(row.id, { name: event.name, members: identities, invitation: event.invitation });
         return ack();
       }
       // A close for an invitation that never arrived needs no state, only a receipt.
@@ -298,6 +325,7 @@ export class Parties {
       const members = event.members.map(entry => ({ ...entry, identity: validateIdentity(entry.identity) }));
       if (!members.some(entry => entry.identity.id === peer.id) || new Set(members.map(entry => entry.identity.id)).size !== members.length) throw new Error('Invalid party membership');
       if (members.some(entry => !verifyCard(entry.identity, entry.card))) throw new Error('A member card does not match its identity');
+      for (const entry of members) entry.identity = this.memberIdentity(entry.identity, row);
       if (!members.some(entry => entry.identity.id === this.me)) {
         this.cancel(row.id);
         this.save(row.id, { state: 'removed', revision: event.revision, members: members.map(entry => entry.identity) });

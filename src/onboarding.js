@@ -89,7 +89,7 @@ export async function runSetup({ home, cli, name, selected, noService = false, j
     console.log(`\n${invite.link}\n`);
     p.log.info('Your friend can paste this link into their agent, or open it to copy an agent prompt.');
   } else if (next === 'pair') {
-    const code = unwrap(await p.text({ message: 'Paste your invite link', validate: value => !value?.trim() ? 'Paste an invite link or cc1: code.' : value.length > 4600 ? 'This invite is too long. Ask for a fresh link.' : undefined }), p);
+    const code = unwrap(await p.text({ message: 'Paste your invite link (hidden)', secret: true, validate: value => !value?.trim() ? 'Paste an invite link or cc1: code.' : value.length > 4600 ? 'This invite is too long. Ask for a fresh link.' : undefined }), p);
     const spin = p.spinner(); spin.start('Connecting…');
     try { const result = await localCall(home, 'pair', { code: code.trim() }); spin.stop(`Connected to ${clean(result.paired.name)}.`); }
     catch (error) { spin.stop('Could not connect.'); throw error; }
@@ -140,6 +140,6 @@ export async function showHome(home) {
   const peers = () => localCall(home, 'peers');
   if (action === 'discussions') return printResult('discuss', await localCall(home, 'discussion_list'), { peers: await peers() });
   if (action === 'invite') return printInvite((await localCall(home, 'invite')).link);
-  if (action === 'pair') { const code = unwrap(await prompts.text({ message: 'Paste your invite link' }), prompts); return printResult('pair', await localCall(home, 'pair', { code: code.trim() })); }
+  if (action === 'pair') { const code = unwrap(await prompts.text({ message: 'Paste your invite link (hidden)', secret: true }), prompts); return printResult('pair', await localCall(home, 'pair', { code: code.trim() })); }
   printResult(action, await localCall(home, action), action === 'inbox' ? { peers: await peers() } : {});
 }

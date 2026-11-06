@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync, existsSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -47,11 +47,12 @@ test('setup connects a healthy app while reporting a malformed app without discl
   assert.equal(readFileSync(broken, 'utf8'), '{bad');
 });
 test('setup starts a scoped Homebrew service; source checkouts can configure without changing any host settings', async t => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'ap-cli-setup-'))); t.after(() => rmSync(home, { recursive: true, force: true }));
+  const brew = join(home, 'brew'); writeFileSync(brew, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const calls = [];
-  assert.equal((await startInstalledService('/unused', { formula: 'owner/tap/clanker', wait: false, run: (command, args) => calls.push({ command, args }) })).state, 'start requested');
-  assert.deepEqual(calls, [{ command: 'brew', args: ['services', 'start', 'owner/tap/clanker'] }]);
+  assert.equal((await startInstalledService('/unused', { formula: 'owner/tap/clanker', wait: false, env: { PATH: home }, run: (command, args) => calls.push({ command, args }) })).state, 'start requested');
+  assert.deepEqual(calls, [{ command: brew, args: ['services', 'start', 'owner/tap/clanker'] }]);
   await assert.rejects(() => startInstalledService('/unused'), /not installed/);
-  const home = mkdtempSync(join(tmpdir(), 'ap-cli-setup-')); t.after(() => rmSync(home, { recursive: true, force: true }));
   const output = execFileSync(process.execPath, [resolve('src/cli.js'), 'setup', '--name', 'David', '--client', 'manual', '--no-service', '--home', home, '--json'], { encoding: 'utf8' });
   const result = JSON.parse(output); assert.equal(result.name, 'David'); assert.equal(result.state, 'not started');
   assert.equal(result.manual, true); assert.equal(result.failed, 0);

@@ -2,6 +2,7 @@
 // and a session with explicit permissions, then use its actual CLI JSONL output.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { isAbsolute } from 'node:path';
 
 const [binary, tools] = process.argv.slice(2);
 const env = { ...process.env, OPENCODE_PASSWORD: randomBytes(32).toString('hex') };
@@ -16,6 +17,7 @@ const request = async (path, method, body) => {
   return response.status === 204 ? undefined : (await response.json()).data;
 };
 try {
+  if (!binary || !isAbsolute(binary)) throw new Error('OpenCode needs an approved absolute executable path.');
   let prompt = '';
   for await (const chunk of process.stdin) prompt += chunk;
   base = await new Promise((resolve, reject) => {

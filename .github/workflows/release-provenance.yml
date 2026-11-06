@@ -1,0 +1,51 @@
+name: Release provenance
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (for example v0.6.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.13.0"
+      - run: npm install --global npm@11.20.0 --ignore-scripts --no-audit --no-fund
+      - name: Check tag and build committed source
+        run: |
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG" || { echo "Dispatch this workflow at the release tag with --ref $RELEASE_TAG"; exit 1; }
+          node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); if (process.env.RELEASE_TAG !== `v${p.version}`) throw new Error("Tag must match package version");'
+          export CLANKER_RELEASE_REF="$GITHUB_SHA"
+          export CLANKER_RELEASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/clanker-chat-${RELEASE_TAG#v}.tar.gz"
+          node packaging/build-release.mjs
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.tar.gz
+      # Separate workflow artifacts never overwrite the operator's release assets.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clanker-chat-${{ env.RELEASE_TAG }}-attested
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/clanker.rb
+          retention-days: 90
+          if-no-files-found: error

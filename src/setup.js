@@ -1,11 +1,12 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 import { localCall } from './local.js';
 import { VERSION } from './version.js';
 import { newer } from './updates.js';
 import { homedir } from 'node:os';
+import { findExecutable, executableSearchPath } from './clients.js';
 
 const profileSchema = z.object({ name: z.string().trim().min(1).max(80) }).strict();
 export function readProfile(home) {
@@ -21,14 +22,21 @@ export function saveProfile(home, value) {
   return profile;
 }
 export function launchCommand(home, cli, env = process.env) {
-  return { command: env.CLANKER_EXECUTABLE || process.execPath, args: env.CLANKER_EXECUTABLE ? ['mcp'] : [cli, 'mcp'], env: { CLANKER_HOME: home } };
+  if (env.CLANKER_EXECUTABLE && !isAbsolute(env.CLANKER_EXECUTABLE)) throw new Error('CLANKER_EXECUTABLE must be an absolute path.');
+  // Keep Homebrew's absolute opt path upgrade-stable; source launches pin Node and the script.
+  return { command: env.CLANKER_EXECUTABLE || process.execPath, args: env.CLANKER_EXECUTABLE ? ['mcp'] : [resolve(cli), 'mcp'], env: { CLANKER_HOME: home } };
 }
-const execute = (command, args) => execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
-export async function startInstalledService(home, { formula, run = execute, wait = true, expectedName } = {}) {
+const execute = (command, args) => execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000, env: { ...process.env, PATH: executableSearchPath() } });
+function brewExecutable(env) {
+  const executable = findExecutable('brew', env.PATH);
+  if (!executable) throw new Error('Homebrew is not installed or is not on an absolute PATH entry.');
+  return executable;
+}
+export async function startInstalledService(home, { formula, run = execute, wait = true, expectedName, env = process.env } = {}) {
   if (!formula) throw new Error('This checkout is not installed through Homebrew. Use setup --no-service, or install the generated formula first.');
   let restart = false;
   if (wait) try { const current = await localCall(home, 'status'); restart = current.version !== VERSION || (expectedName && current.identity.name !== expectedName); } catch {}
-  run('brew', ['services', restart ? 'restart' : 'start', formula]);
+  run(brewExecutable(env), ['services', restart ? 'restart' : 'start', formula]);
   if (!wait) return { service: formula, state: 'start requested' };
   const start = Date.now();
   while (Date.now() - start < 60_000) {
@@ -44,7 +52,7 @@ export async function restartIfOutdated(home, { env = process.env, run = execute
   if (!env.CLANKER_BREW_FORMULA || home !== join(homedir(), '.clanker')) return false;
   let status; try { status = await localCall(home, 'status'); } catch { return false; }
   if (status.version === VERSION || newer(status.version, VERSION)) return false;
-  run('brew', ['services', 'restart', env.CLANKER_BREW_FORMULA]);
+  run(brewExecutable(env), ['services', 'restart', env.CLANKER_BREW_FORMULA]);
   const start = Date.now();
   while (Date.now() - start < 30_000) {
     try { if ((await localCall(home, 'status')).version === VERSION) return true; } catch { /* Still starting. */ }

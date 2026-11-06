@@ -25,3 +25,59 @@ The archive contains the application, public docs, manifests and dependencies. I
 All 13 automated tests passed after the rename, including pairing, encrypted delivery, persistent queues, task approval, revocation, first-run setup and the MCP client interface. Homebrew loaded the renamed `clanker` formula and rendered the correct executable, service and log paths in a temporary local-only tap. That tap and its formula-specific trust entry were removed after verification. A full Homebrew installation remains unverified because of the host permissions limitation recorded in [verification.md](verification.md).
 
 Runtime keys and plaintext inbox history remain private local data under `~/.clanker`. A public repository does not include that directory. Future releases should repeat the scans because generated or newly added files can change what would be disclosed.
+
+## Rebuilding current generic releases
+
+`packaging/build-release.mjs` now snapshots a Git commit (default `HEAD`),
+installs locked production dependencies with lifecycle scripts disabled in a
+temporary directory, and embeds the commit in `SOURCE.json`. It requires Node
+26.13.0 and npm 11.20.0 as build tools. Tar ordering, timestamps (defaulting to
+the commit time), numeric ownership, modes and gzip headers are normalized.
+Local working-tree edits and installed dependencies are not archived.
+
+To compare a tag with its published Homebrew archive, activate that toolchain,
+check out the tag, unset `SOURCE_DATE_EPOCH`, and run:
+
+```bash
+CLANKER_RELEASE_REF=vX.Y.Z node packaging/build-release.mjs
+gh release download vX.Y.Z -R imprintsystems/clanker-chat \
+  --pattern clanker-chat-X.Y.Z.tar.gz --dir /tmp/clanker-published
+shasum -a 256 dist/clanker-chat-X.Y.Z.tar.gz /tmp/clanker-published/clanker-chat-X.Y.Z.tar.gz
+cmp dist/clanker-chat-X.Y.Z.tar.gz /tmp/clanker-published/clanker-chat-X.Y.Z.tar.gz
+gh attestation verify /tmp/clanker-published/clanker-chat-X.Y.Z.tar.gz \
+  --repo imprintsystems/clanker-chat \
+  --signer-workflow imprintsystems/clanker-chat/.github/workflows/release-provenance.yml \
+  --source-ref refs/tags/vX.Y.Z
+```
+
+Both hashes must match. The tag/manual provenance workflow publishes its own
+archive/checksum/formula artifact and GitHub build attestation without changing
+manual release assets. Publish the byte-identical archive to carry that
+attestation over to the release download. Attestations require a successful run
+for a tag containing the workflow; older releases and standalone Linux bundles
+are not retroactively covered. Provenance is not a source-code security audit.
+
+## Local history bounds
+
+Incoming storage is admitted atomically per contact: at most 10,000 unread
+messages / 32 MiB of unread JSON, with a separate 100,000-message / 256 MiB
+backstop counting all incoming JSON, including automatically read control
+traffic. A full contact receives HTTP 507; it cannot evict anyone else's
+history. Reading messages immediately frees the unread allowance.
+
+At startup and hourly, locally stored history older than 90 days is pruned
+only when incoming messages are read or outgoing delivery is settled.
+Uncompleted task requests, live/unseen discussions, unanswered bridge questions,
+queued/running bridge work, and dependencies on recent or queued answers remain.
+Settled bridge question/answer pairs expire together, including on live bridges;
+read party controls can expire because membership lives in the party table.
+Seen terminal discussions and ended bridge/party state expire only after their
+remaining transcript has expired. These defaults leave a conservative history
+window while preventing ordinary consumed traffic from exhausting the tighter
+unread allowance forever. The total backstop still applies to protected history.
+
+Retention uses local storage time, never sender timestamps. Existing history
+gets a full 90-day grace period during the idempotent migration; unread rows are
+never automatically erased. Limits bound new logical storage per contact, not
+total storage across arbitrarily many locally approved contacts or local sends.
+SQLite reuses freed pages; pruning does not promise to shrink an existing file.

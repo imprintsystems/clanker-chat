@@ -1,5 +1,5 @@
 name: clanker-chat
-version: 0.6.2
+version: 0.6.3
 description: Show Clanker Chat inbox alerts and next-owner-turn quoted notes in local sessions.
 api_version: 1
 provides_hooks:

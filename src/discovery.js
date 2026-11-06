@@ -216,10 +216,12 @@ export class Discovery {
     catch { return null; }
     if (!Number.isSafeInteger(after) || after < 0) return null;
     const key = zbase32(Buffer.from(parsed.key, 'base64url'));
-    let lookup = this.lookups.get(key);
+    // A decrypted result is valid only for this public key AND secret.
+    const cacheKey = `${parsed.key}:${parsed.secret}`;
+    let lookup = this.lookups.get(cacheKey);
     if (!lookup || (!lookup.promise && this.now() - lookup.at >= LOOKUP_MS)) {
       lookup = { at: this.now(), result: null };
-      this.lookups.set(key, lookup);
+      this.lookups.set(cacheKey, lookup);
       lookup.promise = this.lookup(key, parsed).then(result => { lookup.result = result; }).finally(() => { lookup.promise = undefined; });
     }
     if (lookup.promise) await lookup.promise;

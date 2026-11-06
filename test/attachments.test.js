@@ -181,21 +181,20 @@ test('authorization precedes incoming disk access and party context cannot be ch
   assert.deepEqual(readFileSync(destination), bytes);
 });
 
-test('incoming quota includes partials and completed files without allocating their declared sizes', async t => {
+test('global incoming quota bounds partial reservations independently of completed retention', async t => {
   const { make } = fixture(t), sender = make('sender'), target = make('target');
   const completed = Buffer.from('complete');
   await complete(target.engine, sender.peer, attachmentFor(completed), completed);
   for (let index = 0; index < MAX_INCOMING_SIZE / MAX_FILE_SIZE; index++) {
-    const attachment = attachmentFor(Buffer.alloc(0), { size: MAX_FILE_SIZE - (index === 0 ? completed.length : 0) });
-    await target.engine.receive(sender.peer, begin(attachment));
+    const peer = make(`sender-${index}`).peer;
+    await target.engine.receive(peer, begin(attachmentFor(Buffer.alloc(0), { size: MAX_FILE_SIZE })));
   }
   assert.equal(readdirSync(join(target.home, 'files')).reduce((size, name) => size + statSync(join(target.home, 'files', name)).size, 0), completed.length);
   await assert.rejects(target.engine.receive(sender.peer, begin(attachmentFor(Buffer.alloc(1)))), /2 GiB/);
   await assert.rejects(target.engine.receive(sender.peer, begin(attachmentFor(Buffer.alloc(0), { size: MAX_FILE_SIZE + 1 }))));
-  // Empty attachments consume no declared bytes and remain valid at the limit.
-  const empty = attachmentFor(Buffer.alloc(0));
-  await complete(target.engine, sender.peer, empty, Buffer.alloc(0));
-  assert.equal(target.store.prepare("SELECT sum(size) AS size FROM attachment_transfers WHERE direction='in'").get().size, MAX_INCOMING_SIZE);
+  // Empty files reserve a minimum cost too; they cannot bypass a full quota.
+  await assert.rejects(target.engine.receive(sender.peer, begin(attachmentFor(Buffer.alloc(0)))), /2 GiB/);
+  assert.equal(target.store.prepare("SELECT sum(size) AS size FROM attachment_transfers WHERE direction='in' AND complete=0").get().size, MAX_INCOMING_SIZE);
 });
 
 test('prepare and save reject unsafe sources, traversal names, relative paths, symlinks and overwrites', async t => {

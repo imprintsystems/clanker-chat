@@ -1,5 +1,5 @@
-import { existsSync, accessSync, constants, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve, delimiter, basename } from 'node:path';
+import { existsSync, accessSync, constants, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join, resolve, delimiter, basename, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
@@ -8,10 +8,20 @@ import { parseDocument, isMap } from 'yaml';
 import { readAccess, clientGrant, enableClient, disableClient, writeAccess } from './access.js';
 import { installNotifications } from './host-install.js';
 
+export function executablePath(path) {
+  if (typeof path !== 'string' || !isAbsolute(path)) return null;
+  try {
+    const canonical = realpathSync(path);
+    accessSync(canonical, constants.X_OK);
+    return statSync(canonical).isFile() ? canonical : null;
+  } catch { return null; }
+}
+// Empty and relative entries change meaning when a host switches project folders.
+export const executableSearchPath = (searchPath = process.env.PATH || '') => searchPath.split(delimiter).filter(isAbsolute).join(delimiter);
 export function findExecutable(name, searchPath = process.env.PATH || '') {
-  for (const directory of searchPath.split(delimiter).filter(Boolean)) {
-    const path = join(directory, name);
-    try { accessSync(path, constants.X_OK); return path; } catch { /* Keep looking. */ }
+  for (const directory of executableSearchPath(searchPath).split(delimiter).filter(Boolean)) {
+    const path = executablePath(join(directory, name));
+    if (path) return path;
   }
   return null;
 }
@@ -84,9 +94,12 @@ function atomicConfigWrite(client, original, next, home) {
   const temporary = join(dirname(path), `.${basename(path)}.clanker-${randomUUID()}.tmp`);
   writeFileSync(temporary, next, { mode: 0o600, flag: 'wx' }); renameSync(temporary, path);
 }
-const runDefault = (command, args) => execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 });
+const runDefault = (command, args) => execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000, env: { ...process.env, PATH: executableSearchPath() } });
 function codexEntry(client, run) {
-  try { return JSON.parse(run(client.executable || 'codex', ['mcp', 'get', 'clanker', '--json'])).transport; }
+  try {
+    if (!client.executable) throw new Error('Codex executable is unavailable.');
+    return JSON.parse(run(client.executable, ['mcp', 'get', 'clanker', '--json'])).transport;
+  }
   catch (error) {
     if (/No MCP server named|not found|does not exist/i.test(String(error.stderr || error.message)) && error.code !== 'ENOENT') return undefined;
     throw new Error('Codex settings could not be read. They were left unchanged.');

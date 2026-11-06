@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
-import { findExecutable } from './clients.js';
+import { findExecutable, executableSearchPath } from './clients.js';
 import { localCall, readJSON } from './local.js';
 
 export async function runNotificationHook(home, client, { agentHome, executable }) {
@@ -40,7 +40,7 @@ export async function launchAgent(id, args, { env=process.env } = {}) {
   const development=args.includes('--development-channel');
   const extra=id==='claude'&&development?['--dangerously-load-development-channels','server:clanker']:id==='hermes'?['--tui']:[];
   args=args.filter(arg=>arg!=='--development-channel');
-  const child=spawn(executable,[...extra,...args],{stdio:'inherit',env});
+  const child=spawn(executable,[...extra,...args],{stdio:'inherit',env:{...env,PATH:executableSearchPath(env.PATH)}});
   const forward=()=>child.kill('SIGTERM');process.once('SIGTERM',forward);
   try {return await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',(code,signal)=>resolve(code??(signal?1:0)));});}
   finally {process.off('SIGTERM',forward);}

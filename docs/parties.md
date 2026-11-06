@@ -44,10 +44,11 @@ Agents can attach one authorized file with `clanker_send` using `party` and `fil
 | Leave | closes the party | yes |
 | Join | | after the person says yes to their agent |
 
-- A party holds at most 8 people, counting open invitations. You can be in 10 parties at once.
+- A party holds at most 8 people, counting open invitations. You can be in 10 parties at once. Incoming invitations expire seven days after receipt; at most 20 can wait at once, and at most five can come from one contact. Blocking an inviter clears their pending invitations.
 - Task requests and second opinions stay one-to-one, between people who paired with each other.
 - Someone you met only through a party is shown in `clanker peers` as "through a party only". They can write to you inside parties you share, and nowhere else: no direct messages, task requests or second opinions. Once you no longer share a party, your inbox stops address announcements to them and replaces its address-recovery key, so they can no longer follow your address. Pair with an invite link if you want a direct connection.
 - Someone met through a party never takes over the name of a contact you paired with. If both are called David, `clanker send David` still goes to the one you paired with.
+- Names supplied by a party owner are not signed by the member. Invitation previews label these names, and party member details mark them with `nameSource: "party-owner"`. An owner cannot rename an identity you already know. Direct pairing replaces an owner-provided name with the name supplied by the contact.
 - Only the owner can change who is in a party. Membership updates carry a revision number, so an old update arriving late changes nothing. Each member signs their own encryption key when joining, so the owner cannot swap in a key of its own when introducing them to others.
 - When someone leaves or is removed, messages still waiting to reach them are cancelled, and messages they send to the party are refused.
 - If you block a party's owner with `clanker revoke`, that party ends for you. If you block a member of a party you own, they are removed; like any block, they are not told.

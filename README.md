@@ -50,6 +50,20 @@ This is a working prototype for macOS and Linux. The Homebrew package installs N
 
 Both contacts need 0.5.1 for files and for address recovery. Existing `cc1:` connection codes remain accepted.
 
+### New in 0.6.3
+
+Version 0.6.3 fixes the findings of an outside security review. Limits are per contact, so one contact can no longer use up space everyone shares:
+
+- **Files:** unfinished incoming transfers expire after an hour idle. Each contact can hold at most 16 unfinished transfers, 512 MiB of unfinished files and 1 GiB of received files; the shared 2 GiB limit now counts unfinished transfers only. Blocking a contact removes their unfinished transfers but keeps files you received. A received file belongs to one message and is checked once, not again for every message that names it.
+- **Messages:** each contact can have up to 10,000 unread messages or 32 MiB waiting, and 100,000 messages or 256 MiB stored in total; beyond that their inbox gets a clear refusal (HTTP 507) and nobody else's messages are touched. Read messages and finished conversations are removed after 90 days; unread messages, open tasks and live discussions and bridges are kept.
+- **Invitations:** malformed requests from strangers no longer lock out a valid invite. `clanker pair` asks for the link in a hidden prompt and `clanker pair -` reads it from standard input, so it stays out of the process list and shell history.
+- **Bridges and setup:** Clanker finds programs only in absolute `PATH` folders and stores the exact file you approved. A bridge approved under an older release with a relative program path asks for approval again.
+- **Display:** names, file names and messages can no longer use invisible direction or terminal control characters to disguise what you see. An invalid timestamp from a contact shows as unknown instead of breaking your inbox.
+- **Parties:** a party owner cannot rename people you already know; names only the owner vouches for are labeled as such. Each contact can have at most five pending party invitations to you, and they expire after seven days.
+- **Release builds** are reproducible from the Git tag; see [publication checks](docs/publication-check.md).
+
+Both contacts should upgrade.
+
 ### New in 0.6.2
 
 Version 0.6.2 detects a cloudflared process that is still running but has lost its connection. Clanker reports itself offline, refuses invitations with the dead address, and lets the background service replace the tunnel after six failed checks 15 seconds apart. Queued messages and files retry automatically. This recovers from a dropped Quick Tunnel; it does not prevent Cloudflare outages. Both contacts should upgrade so either inbox can recover.
@@ -104,7 +118,7 @@ You can also run setup without prompts. The selected list replaces the previous 
 clanker setup --name Erik --client hermes --client omp
 ```
 
-Ask your agent to create an invite link, then share it privately. Your friend pastes the complete link into their agent and approves connecting. The agent handles setup if needed; neither person needs a Cloudflare account or domain. From a terminal, `clanker invite` prints the link and `clanker pair "<invite-link>"` accepts it. The link works once and expires after ten minutes.
+Ask your agent to create an invite link, then share it privately. Your friend pastes the complete link into their agent and approves connecting. The agent handles setup if needed; neither person needs a Cloudflare account or domain. From a terminal, `clanker invite` prints the link and `clanker pair` asks for it in a hidden prompt; `clanker pair -` reads it from standard input. Avoid `clanker pair "<invite-link>"`: it still works, but puts the link in the process list and your shell history. The link works once and expires after ten minutes.
 
 Stop the background service with `brew services stop imprintsystems/tap/clanker`. Installing does not start it or edit agent settings until you run setup. Existing conflicting clanker MCP entries are left unchanged.
 

@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { messageSchema, bridgeAgent, bridgeTopic, BRIDGE_TEXT } from './protocol.js';
 import { contactName } from './store.js';
-import { findExecutable } from './clients.js';
+import { iso } from './display.js';
+import { findExecutable, executablePath, executableSearchPath } from './clients.js';
 
 const idSchema = z.string().uuid();
 const HOUR = 3_600_000, DAY = 24 * HOUR, WEEK = 7 * DAY;
@@ -48,17 +49,17 @@ export const RUNNERS = {
 // answer. self: no runner; an active agent checks bridge_wait, then bridge_answer.
 const APPS = [...Object.keys(RUNNERS), 'custom', 'self'];
 export const ENV_KEYS = ['PATH', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'HERMES_HOME', 'OMP_PROFILE', 'PI_PROFILE', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'];
-// How a side answers, in words for its owner. The executable path and environment stay local.
-const describe = runner => ({ app: runner.app, label: RUNNERS[runner.app]?.label || (runner.app === 'custom' ? 'your command' : 'the agent itself'), tools: runner.tools, ...(runner.folder ? { folder: runner.folder } : {}), ...(runner.command ? { command: runner.command } : {}) });
+// How a side answers, in words for its owner. Only the environment stays local.
+const describe = runner => ({ app: runner.app, label: RUNNERS[runner.app]?.label || (runner.app === 'custom' ? 'your command' : 'the agent itself'), tools: runner.tools, ...(runner.folder ? { folder: runner.folder } : {}), ...(runner.executable ? { executable: runner.executable } : {}), ...(runner.command ? { command: runner.command } : {}) });
 const runnerSchema = z.object({
   app: z.enum(APPS).optional(), folder: z.string().max(4096).optional(), tools: z.enum(['read-only', 'normal']).optional(),
   command: z.string().trim().min(1).max(2000).optional(), share: z.string().trim().max(1000).optional(),
+  executable: z.string().max(4096).optional(),
   env: z.record(z.string(), z.string().max(8192)).optional()
 });
 const proposeSchema = runnerSchema.extend({ to: z.string().min(1).max(100), topic: bridgeTopic, agent: bridgeAgent, note: z.string().trim().max(2000).optional() }).strict();
 const acceptSchema = runnerSchema.extend({ bridge: z.string().min(1).max(200), agent: bridgeAgent }).strict();
 const configureSchema = runnerSchema.extend({ bridge: z.string().min(1).max(200) }).strict();
-const iso = ms => ms ? new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z') : null;
 const clip = (value, max) => { const flat = String(value).replace(/\s+/g, ' ').trim(); return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat; };
 // eslint-disable-next-line no-control-regex
 const plain = value => value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\r/g, '').trim();
@@ -169,14 +170,17 @@ export class Bridges {
     // so a call from a session with another PATH cannot swap the executable.
     const source = current && (input.app === undefined || input.app === current.app) ? current.env ?? process.env : input.env ?? process.env;
     const env = Object.fromEntries(ENV_KEYS.filter(key => typeof source[key] === 'string').map(key => [key, source[key]]));
+    if (app !== 'custom') env.PATH = executableSearchPath(env.PATH);
     if (app === 'custom') {
       const command = input.command ?? (current?.app === 'custom' ? current.command : undefined);
       if (!command) throw new Error('A custom answerer needs a command. It gets the question on stdin and prints the answer.');
       return { app, folder, tools, command, env };
     }
     const preset = RUNNERS[app];
-    const executable = preset.binaries.map(binary => findExecutable(binary, env.PATH)).find(Boolean);
+    const approved = current?.app === app && executablePath(current.executable) === current.executable ? current.executable : null;
+    const executable = approved || preset.binaries.map(binary => findExecutable(binary, env.PATH)).find(Boolean);
     if (!executable) throw new Error(`${preset.label} is not installed here (looked for ${preset.binaries.join(' or ')} on PATH). Choose another app, custom or self.`);
+    if (input.executable !== undefined && input.executable !== executable) throw new Error('The runner executable changed during approval. Ask the owner to approve its new path.');
     return { app, folder, tools, executable, env };
   }
   outgoing(row, event, text, extra = {}) {
@@ -219,7 +223,8 @@ export class Bridges {
   // Whether a change lets the other agent reach more, or say more, than before.
   widens(args, row = this.find(args.bridge)) {
     const current = row.runner ? JSON.parse(row.runner) : {};
-    return (args.tools === 'normal' && current.tools !== 'normal') || (args.app !== undefined && args.app !== current.app) || (args.command !== undefined && args.command !== current.command) || (args.folder !== undefined && args.folder !== current.folder)
+    return (current.app && !['self', 'custom'].includes(current.app) && (!isAbsolute(current.executable || '') || executablePath(current.executable) !== current.executable))
+      || (args.tools === 'normal' && current.tools !== 'normal') || (args.app !== undefined && args.app !== current.app) || (args.command !== undefined && args.command !== current.command) || (args.folder !== undefined && args.folder !== current.folder)
       || (args.share !== undefined && (args.share.trim() || null) !== row.share);
   }
   // Validates a proposal, acceptance or change without making it, and says how
@@ -420,10 +425,16 @@ export class Bridges {
   }
   async run(job) {
     const row = this.row(job.bridge), runner = JSON.parse(row.runner);
+    // Older approvals may contain a cwd-relative path. Never reinterpret it in a project.
+    if (runner.app !== 'custom' && (!isAbsolute(runner.executable || '') || executablePath(runner.executable) !== runner.executable)) {
+      this.store.prepare("UPDATE bridge_runs SET state='failed',error=? WHERE ask=?").run('Runner is not an approved absolute executable. Ask the owner to re-approve it with bridge configure.', job.ask);
+      return;
+    }
     const item = this.store.prepare('SELECT * FROM messages WHERE id=?').get(job.ask);
     const prompt = this.prompt(row, item);
     // CLANKER_BRIDGE_RUN reaches Clanker's CLI and MCP server inside the run, which then only read.
     const env = { ...process.env, ...runner.env, CLANKER_BRIDGE: row.id, CLANKER_BRIDGE_RUN: job.ask, CLANKER_BRIDGE_TOOLS: runner.tools };
+    if (runner.app !== 'custom') env.PATH = executableSearchPath(env.PATH);
     let command, args, input = prompt, scratch, out;
     if (runner.app === 'custom') [command, args] = ['/bin/sh', ['-c', runner.command]];
     else {

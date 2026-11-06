@@ -1,4 +1,4 @@
-import { constants, mkdirSync, lstatSync, chmodSync } from 'node:fs';
+import { constants, mkdirSync, lstatSync, chmodSync, unlinkSync } from 'node:fs';
 import { open as openFile, unlink } from 'node:fs/promises';
 import { isAbsolute, basename, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -6,9 +6,15 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { attachmentSchema, MAX_FILE_SIZE, seal, open, post } from './protocol.js';
+import { displayText } from './display.js';
 
 export const CHUNK_SIZE = 48 * 1024;
 export const MAX_INCOMING_SIZE = 2 * 1024 * 1024 * 1024;
+export const MAX_PEER_INCOMING_SIZE = MAX_FILE_SIZE;
+export const MAX_PEER_RETAINED_SIZE = 1024 * 1024 * 1024;
+export const MAX_PEER_TRANSFERS = 16;
+export const INCOMING_IDLE_MS = 60 * 60 * 1000;
+const MIN_TRANSFER_COST = 64 * 1024;
 const run = promisify(execFile);
 // On macOS a saved file carries the same quarantine mark as a browser download,
 // so Gatekeeper checks an app or script from a contact before it first runs.
@@ -26,8 +32,9 @@ const receiptSchema = z.object({ requestId: id, id, offset: z.number().int().min
 const readFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 const writeFlags = constants.O_RDWR | constants.O_NOFOLLOW;
 const createFlags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
-const same = (row, attachment) => row.name === attachment.name && row.size === attachment.size && row.sha256 === attachment.sha256;
-const metadata = row => ({ id: row.id, name: row.name, size: row.size, sha256: row.sha256 });
+const same = (row, attachment) => displayText(row.name) === attachment.name && row.size === attachment.size && row.sha256 === attachment.sha256;
+const metadata = row => ({ id: row.id, name: displayText(row.name), size: row.size, sha256: row.sha256 });
+const fileState = stat => [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].map(String).join(':');
 
 async function writeAll(file, buffer, position) {
   let offset = 0;
@@ -53,11 +60,12 @@ async function digest(file, size, destination) {
   return hash.digest('hex');
 }
 
-// The database reserves the full declared size, including unfinished transfers.
+// Incomplete reservations have global and per-contact caps. Received files have
+// a separate per-contact allowance, so one contact cannot fill everyone else's.
 // Internal paths are random local tokens, never names or paths supplied by a peer.
 export class Attachments {
-  constructor(home, store, { local = false, stopping = () => false, allowed = () => {}, recipient = peer => peer.identity, transport = (peer, route, envelope) => post(peer.endpoint, route, envelope, local) } = {}) {
-    Object.assign(this, { store, local, stopping, allowed, recipient, transport, locks: new Map() });
+  constructor(home, store, { local = false, stopping = () => false, allowed = () => {}, recipient = peer => peer.identity, transport = (peer, route, envelope) => post(peer.endpoint, route, envelope, local), now = Date.now, idleMs = INCOMING_IDLE_MS } = {}) {
+    Object.assign(this, { store, local, stopping, allowed, recipient, transport, now, idleMs, locks: new Map() });
     this.directory = join(home, 'files');
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     if (!lstatSync(this.directory).isDirectory() || lstatSync(this.directory).isSymbolicLink()) throw new Error('Attachment directory must not be a symlink');
@@ -68,10 +76,48 @@ export class Attachments {
       token TEXT NOT NULL UNIQUE, offset INTEGER NOT NULL DEFAULT 0, complete INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY(direction,peer,id)
     )`);
+    store.transaction(() => {
+      const columns = store.prepare('PRAGMA table_info(attachment_transfers)').all().map(column => column.name);
+      for (const [name, type] of [['created_at', 'INTEGER NOT NULL DEFAULT 0'], ['updated_at', 'INTEGER NOT NULL DEFAULT 0'], ['quota_released', 'INTEGER NOT NULL DEFAULT 0'], ['verified_state', 'TEXT'], ['message_id', 'TEXT'], ['message_bound', 'INTEGER NOT NULL DEFAULT 0']]) {
+        if (!columns.includes(name)) store.db.exec(`ALTER TABLE attachment_transfers ADD COLUMN ${name} ${type}`);
+      }
+      store.prepare('UPDATE attachment_transfers SET created_at=?,updated_at=? WHERE created_at=0').run(now(), now());
+      // A durable marker also resumes upgrades interrupted after adding columns.
+      // Existing received messages already own their transfer; an upgrade must
+      // not reopen them for replay. Old files are hashed once on first use.
+      if (!store.get('attachment_message_ownership_migrated')) {
+        store.db.exec(`UPDATE attachment_transfers AS a SET message_id=(
+          SELECT m.id FROM messages m WHERE m.direction='in' AND m.peer=a.peer
+          AND json_extract(m.payload,'$.attachment.id')=a.id ORDER BY m.seq LIMIT 1
+        ) WHERE a.direction='in' AND a.complete=1 AND a.message_id IS NULL`);
+        store.set('attachment_message_ownership_migrated', true);
+      }
+      store.db.exec(`UPDATE attachment_transfers AS a SET message_bound=1 WHERE a.message_id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM messages m WHERE m.id=a.message_id AND m.peer=a.peer AND m.direction='in')`);
+    });
+    store.attachments = this;
+    for (const peer of store.prepare('SELECT id FROM peers WHERE revoked=1').all()) this.revoke(peer.id);
+    this.cleanup();
   }
   path(row) { return join(this.directory, `${id.parse(row.token)}.bin`); }
   row(direction, peer, attachmentId) {
     return this.store.prepare('SELECT * FROM attachment_transfers WHERE direction=? AND peer=? AND id=?').get(direction, peer, attachmentId);
+  }
+  remove(row) {
+    try { unlinkSync(this.path(row)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    this.store.prepare("DELETE FROM attachment_transfers WHERE direction='in' AND peer=? AND id=?").run(row.peer, row.id);
+  }
+  cleanup() {
+    for (const row of this.store.prepare("SELECT * FROM attachment_transfers WHERE direction='in' AND complete=0 AND updated_at<=?").all(this.now() - this.idleMs)) {
+      // Never expire a transfer while one of its disk operations is in flight.
+      if (!this.locks.has(`in:${row.peer}:${row.id}`)) this.remove(row);
+    }
+  }
+  revoke(peerId) {
+    for (const row of this.store.prepare("SELECT * FROM attachment_transfers WHERE direction='in' AND peer=? AND complete=0").all(peerId)) this.remove(row);
+    // Completed files belong to the user and remain saveable after revocation;
+    // keep their metadata, but never charge a revoked contact's old retention.
+    this.store.prepare("UPDATE attachment_transfers SET quota_released=1 WHERE direction='in' AND peer=? AND complete=1").run(peerId);
   }
   async locked(key, fn) {
     const previous = this.locks.get(key) || Promise.resolve();
@@ -87,7 +133,7 @@ export class Attachments {
       const stat = await source.stat();
       if (!stat.isFile()) throw new Error('Attachment must be a regular file');
       if (stat.size > MAX_FILE_SIZE) throw new Error('Attachment exceeds the 512 MiB limit');
-      let name = basename(file).replace(/[\\\u0000-\u001f\u007f]/g, '_');
+      let name = displayText(basename(file)).replace(/\\/g, '_');
       while (Buffer.byteLength(name, 'utf8') > 255) name = Array.from(name).slice(0, -1).join('');
       token = randomUUID();
       const attachment = attachmentSchema.parse({ id: randomUUID(), name, size: stat.size, sha256: '0'.repeat(64) });
@@ -143,85 +189,134 @@ export class Attachments {
   async receive(peer, raw) {
     const data = transferSchema.parse(raw);
     await this.allowed(peer.id, data.party);
+    if (data.type === 'begin') this.cleanup();
     const attachmentId = data.type === 'begin' ? data.attachment.id : data.id;
     return this.locked(`in:${peer.id}:${attachmentId}`, async () => {
       // Authorization can change while a request waits behind another chunk.
       await this.allowed(peer.id, data.party);
       if (this.stopping()) throw new Error('Attachment transfer stopped');
-      let row = this.row('in', peer.id, attachmentId);
+      let row = this.row('in', peer.id, attachmentId), file;
       if (row && row.party !== (data.party || '')) throw new Error('Attachment party mismatch');
       if (data.type === 'begin') {
         if (row && !same(row, data.attachment)) throw new Error('Attachment metadata mismatch');
         if (!row) {
           this.store.transaction(() => {
-            const used = this.store.prepare("SELECT coalesce(sum(size),0) AS size FROM attachment_transfers WHERE direction='in'").get().size;
-            if (used + data.attachment.size > MAX_INCOMING_SIZE) throw new Error('Incoming attachment storage exceeds the 2 GiB limit');
-            const a = data.attachment;
-            this.store.prepare('INSERT INTO attachment_transfers (direction,peer,id,party,name,size,sha256,token) VALUES (?,?,?,?,?,?,?,?)').run('in', peer.id, a.id, data.party || '', a.name, a.size, a.sha256, randomUUID());
+            const cost = Math.max(data.attachment.size, MIN_TRANSFER_COST);
+            const active = this.store.prepare("SELECT count(*) AS count,coalesce(sum(max(size,?)),0) AS size FROM attachment_transfers WHERE direction='in' AND peer=? AND complete=0").get(MIN_TRANSFER_COST, peer.id);
+            if (active.count >= MAX_PEER_TRANSFERS || active.size + cost > MAX_PEER_INCOMING_SIZE) throw new Error('Contact incoming attachment allowance exceeded');
+            const retained = this.store.prepare("SELECT coalesce(sum(max(size,?)),0) AS size FROM attachment_transfers WHERE direction='in' AND peer=? AND quota_released=0").get(MIN_TRANSFER_COST, peer.id).size;
+            if (retained + cost > MAX_PEER_RETAINED_SIZE) throw new Error('Contact attachment retention allowance exceeded');
+            const used = this.store.prepare("SELECT coalesce(sum(max(size,?)),0) AS size FROM attachment_transfers WHERE direction='in' AND complete=0").get(MIN_TRANSFER_COST).size;
+            if (used + cost > MAX_INCOMING_SIZE) throw new Error('Incoming attachment storage exceeds the 2 GiB limit');
+            const a = data.attachment, now = this.now();
+            this.store.prepare('INSERT INTO attachment_transfers (direction,peer,id,party,name,size,sha256,token,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run('in', peer.id, a.id, data.party || '', a.name, a.size, a.sha256, randomUUID(), now, now);
           });
           row = this.row('in', peer.id, attachmentId);
         }
-        let file;
-        try {
-          try { file = await openFile(this.path(row), writeFlags); }
-          catch (error) {
-            if (error.code !== 'ENOENT' || row.offset || row.complete) throw error;
-            file = await openFile(this.path(row), constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-          }
-          const stat = await file.stat();
-          if (!stat.isFile() || stat.size < row.offset) throw new Error('Attachment partial file is invalid');
-          if (stat.size !== row.offset) await file.truncate(row.offset);
-        } finally { await file?.close(); }
-      } else {
-        if (!row) throw new Error('Attachment transfer not begun');
-        const file = await openFile(this.path(row), writeFlags);
-        try {
-          const stat = await file.stat();
-          if (!stat.isFile() || stat.size < row.offset) throw new Error('Attachment partial file is invalid');
-          if (stat.size !== row.offset) await file.truncate(row.offset);
-          if (data.type === 'chunk') {
-            const chunk = Buffer.from(data.data, 'base64');
-            if (!chunk.length || chunk.toString('base64') !== data.data || data.offset + chunk.length > row.size) throw new Error('Invalid attachment chunk size or encoding');
-            if (data.offset < row.offset && data.offset + chunk.length <= row.offset) {
-              const previous = Buffer.allocUnsafe(chunk.length);
-              const { bytesRead } = await file.read(previous, 0, previous.length, data.offset);
-              if (bytesRead !== chunk.length || !previous.equals(chunk)) throw new Error('Conflicting duplicate attachment chunk');
-            } else {
-              if (row.complete || data.offset !== row.offset) throw new Error('Attachment offset mismatch');
-              await writeAll(file, chunk, row.offset);
-              await file.datasync();
-              row.offset += chunk.length;
-              this.store.prepare("UPDATE attachment_transfers SET offset=? WHERE direction='in' AND peer=? AND id=?").run(row.offset, peer.id, attachmentId);
-            }
+      } else if (!row) throw new Error('Attachment transfer not begun');
+      try {
+        try { file = await openFile(this.path(row), row.complete ? readFlags : writeFlags); }
+        catch (error) {
+          if (error.code !== 'ENOENT' || data.type !== 'begin' || row.offset || row.complete) throw error;
+          file = await openFile(this.path(row), constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        }
+        const stat = await file.stat({ bigint: true });
+        if (!stat.isFile() || stat.size < BigInt(row.offset)) throw new Error('Attachment partial file is invalid');
+        if (row.complete) {
+          if (stat.size !== BigInt(row.size) || (row.verified_state && fileState(stat) !== row.verified_state)) throw new Error('Received attachment integrity check failed');
+        } else if (stat.size !== BigInt(row.offset)) await file.truncate(row.offset);
+        if (data.type === 'chunk') {
+          const chunk = Buffer.from(data.data, 'base64');
+          if (!chunk.length || chunk.toString('base64') !== data.data || data.offset + chunk.length > row.size) throw new Error('Invalid attachment chunk size or encoding');
+          if (data.offset < row.offset && data.offset + chunk.length <= row.offset) {
+            const previous = Buffer.allocUnsafe(chunk.length);
+            const { bytesRead } = await file.read(previous, 0, previous.length, data.offset);
+            if (bytesRead !== chunk.length || !previous.equals(chunk)) throw new Error('Conflicting duplicate attachment chunk');
           } else {
-            if (row.offset !== row.size) throw new Error('Attachment is incomplete');
-            if (await digest(file, row.size) !== row.sha256) {
-              await file.truncate(0);
-              await file.datasync();
-              this.store.prepare("UPDATE attachment_transfers SET offset=0,complete=0 WHERE direction='in' AND peer=? AND id=?").run(peer.id, attachmentId);
-              throw new Error('Attachment sha256 mismatch');
-            }
-            await file.sync();
-            this.store.prepare("UPDATE attachment_transfers SET complete=1 WHERE direction='in' AND peer=? AND id=?").run(peer.id, attachmentId);
-            row.complete = 1;
+            if (row.complete || data.offset !== row.offset) throw new Error('Attachment offset mismatch');
+            await writeAll(file, chunk, row.offset);
+            await file.datasync();
+            row.offset += chunk.length;
+            this.store.prepare("UPDATE attachment_transfers SET offset=? WHERE direction='in' AND peer=? AND id=?").run(row.offset, peer.id, attachmentId);
           }
-        } finally { await file.close(); }
+        } else if (data.type === 'finish' && !row.complete) {
+          if (row.offset !== row.size) throw new Error('Attachment is incomplete');
+          if (await this.digest(file, row.size) !== row.sha256) {
+            await file.truncate(0);
+            await file.datasync();
+            this.store.prepare("UPDATE attachment_transfers SET offset=0,complete=0,updated_at=? WHERE direction='in' AND peer=? AND id=?").run(this.now(), peer.id, attachmentId);
+            throw new Error('Attachment sha256 mismatch');
+          }
+          await file.sync();
+          row.verified_state = fileState(await file.stat({ bigint: true }));
+          // Revocation may have deleted the row while the digest was running.
+          await this.allowed(peer.id, data.party);
+          this.store.prepare("UPDATE attachment_transfers SET complete=1,verified_state=? WHERE direction='in' AND peer=? AND id=?").run(row.verified_state, peer.id, attachmentId);
+          row.complete = 1;
+        }
+        await this.allowed(peer.id, data.party);
+        if (!this.row('in', peer.id, attachmentId)) throw new Error('Attachment transfer removed');
+        this.store.prepare("UPDATE attachment_transfers SET updated_at=? WHERE direction='in' AND peer=? AND id=?").run(this.now(), peer.id, attachmentId);
+        return { id: attachmentId, offset: row.offset, complete: !!row.complete };
+      } finally {
+        await file?.close();
+        // A begin racing revocation can create its file after revoke removed it.
+        if (!this.row('in', peer.id, attachmentId)) await unlink(this.path(row)).catch(error => { if (error.code !== 'ENOENT') throw error; });
       }
-      return { id: attachmentId, offset: row.offset, complete: !!row.complete };
     });
   }
-  async verifyReceived(peerId, raw, scope) {
+  async digest(file, size) { return digest(file, size); }
+  received(peerId, raw, scope, messageId) {
     if (scope !== undefined) id.parse(scope);
+    if (messageId !== undefined) id.parse(messageId);
     const attachment = attachmentSchema.parse(raw), row = this.row('in', peerId, attachment.id);
     if (!row || !row.complete || !same(row, attachment) || row.party !== (scope || '')) throw new Error('Received attachment is not verified or metadata does not match');
-    const file = await openFile(this.path(row), readFlags);
+    // A crash between reserving a message ID and its insertion must not strand
+    // an unaccepted transfer. Accepted bindings remain permanent.
+    if (row.message_id && !row.message_bound) {
+      if (this.store.prepare("SELECT 1 FROM messages WHERE id=? AND peer=? AND direction='in'").get(row.message_id, peerId)) {
+        this.store.prepare("UPDATE attachment_transfers SET message_bound=1 WHERE direction='in' AND peer=? AND id=?").run(peerId, row.id);
+        row.message_bound = 1;
+      } else row.message_id = null;
+    }
+    if (messageId && row.message_id && row.message_id !== messageId) throw new Error('Received attachment already belongs to another message');
+    return row;
+  }
+  async verifyReceived(peerId, raw, scope, messageId) {
+    const attachment = attachmentSchema.parse(raw);
+    return this.locked(`in:${peerId}:${attachment.id}`, async () => {
+      const row = this.received(peerId, attachment, scope, messageId);
+      const file = await openFile(this.path(row), readFlags);
+      try {
+        const stat = await file.stat({ bigint: true }), state = fileState(stat);
+        if (!stat.isFile() || stat.size !== BigInt(row.size)) throw new Error('Received attachment integrity check failed');
+        if (row.verified_state) {
+          if (state !== row.verified_state) throw new Error('Received attachment integrity check failed');
+        } else {
+          // Legacy completed rows have no cached identity: verify once, not once
+          // per message. Peer operations cannot mutate a completed transfer.
+          if (await this.digest(file, row.size) !== row.sha256 || fileState(await file.stat({ bigint: true })) !== state) throw new Error('Received attachment integrity check failed');
+          this.store.prepare("UPDATE attachment_transfers SET verified_state=? WHERE direction='in' AND peer=? AND id=?").run(state, peerId, attachment.id);
+        }
+      } finally { await file.close(); }
+      return metadata(row);
+    });
+  }
+  acceptReceived(peerId, raw, scope, messageId, accept) {
+    const row = this.received(peerId, raw, scope, messageId);
+    // Bind before inserting, with no await between the two. Party acceptance
+    // owns its transaction; reserving first also leaves crash-safe ownership.
+    const bind = this.store.prepare("UPDATE attachment_transfers SET message_id=?,message_bound=? WHERE direction='in' AND peer=? AND id=?");
+    bind.run(messageId, row.message_bound, peerId, row.id);
     try {
-      if (!(await file.stat()).isFile() || await digest(file, row.size) !== row.sha256) throw new Error('Received attachment integrity check failed');
-    } finally { await file.close(); }
-    return metadata(row);
+      const result = accept();
+      bind.run(messageId, 1, peerId, row.id);
+      return result;
+    } catch (error) { bind.run(row.message_id, row.message_bound, peerId, row.id); throw error; }
   }
   async save(peerId, raw, destination) {
     if (typeof destination !== 'string' || !isAbsolute(destination) || destination.includes('\0')) throw new Error('Destination must be an absolute filename');
+    if (displayText(destination) !== destination) throw new Error('Destination must not contain direction or control characters');
     const attachment = attachmentSchema.parse(raw), row = this.row('in', peerId, attachment.id);
     if (!row || !row.complete || !same(row, attachment)) throw new Error('Received attachment is not verified or metadata does not match');
     const source = await openFile(this.path(row), readFlags);

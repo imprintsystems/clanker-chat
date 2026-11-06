@@ -3,11 +3,17 @@ import { join } from 'node:path';
 import { MAX_BODY } from './protocol.js';
 
 export const socketPath = home => join(home, 'daemon.sock');
-export async function readJSON(request) {
+// Replies from this device's own daemon, over its owner-only socket. Every list
+// it returns is bounded in rows and row size, but together they can exceed the
+// 128 KiB request limit (30 bridge events of 8,000 characters, 100 full
+// messages with escaped text), and a contact's valid traffic must not make them
+// unreadable.
+const MAX_LOCAL_RESPONSE = 64 * 1024 * 1024;
+export async function readJSON(request, limit = MAX_BODY) {
   let size = 0; const chunks = [];
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > MAX_BODY) throw new Error('Request too large');
+    if (size > limit) throw new Error('Request too large');
     chunks.push(chunk);
   }
   return JSON.parse((chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, size)).toString());
@@ -22,7 +28,7 @@ export function localCall(home, command, args = {}, client, { timeout = 30_000 }
     const headers = { 'content-type': 'application/json', ...(process.env.CLANKER_BRIDGE_RUN ? { 'x-clanker-run': process.env.CLANKER_BRIDGE_RUN } : {}), ...(client ? { 'x-clanker-origin': 'mcp', 'x-clanker-client': client.id || '', 'x-clanker-token': client.token || '', ...(client.worker ? { 'x-clanker-worker':client.worker } : {}) } : {}) };
     const request = http.request({ socketPath: socketPath(home), path: '/local', method: 'POST', headers }, async response => {
       try {
-        const value = await readJSON(response);
+        const value = await readJSON(response, MAX_LOCAL_RESPONSE);
         if (response.statusCode !== 200) reject(new Error(value.error || 'Local request failed'));
         else resolve(value);
       } catch (error) { reject(error); }

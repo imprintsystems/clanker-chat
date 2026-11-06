@@ -33,10 +33,10 @@ export function note(body, heading) {
   for (const line of String(body).split('\n').flatMap(line => line ? wrap(line, Math.min(68, width() - 12)) : [''])) write(`${margin}${bar()}  ${line}\n`);
 }
 
-export function text({ message, placeholder = '', initialValue, validate }) {
+export function text({ message, placeholder = '', initialValue, validate, secret = false }) {
   return new TextPrompt({ initialValue, validate, render() {
-    if (this.state === 'submit' || this.state === 'cancel') return title(this.state, message) + done(this.state, this.value);
-    const input = this.userInput ? this.userInputWithCursor : placeholder ? `${t.inverse(placeholder[0])}${t.muted(placeholder.slice(1))}` : '█';
+    if (this.state === 'submit' || this.state === 'cancel') return title(this.state, message) + done(this.state, secret ? 'Hidden' : this.value);
+    const input = secret ? '█' : this.userInput ? this.userInputWithCursor : placeholder ? `${t.inverse(placeholder[0])}${t.muted(placeholder.slice(1))}` : '█';
     return `${title(this.state, message)}${margin}${bar()}  ${input}\n${foot(this.state, this.error, 'enter to continue')}`;
   } }).prompt();
 }

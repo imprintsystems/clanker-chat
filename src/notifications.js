@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { readAccess, readAccessAsync } from './access.js';
 import { discussionNotice } from './discussions.js';
 import { inboxNote } from './overview.js';
+import { displayText } from './display.js';
 
 const execute = promisify(execFile);
 const registration = z.object({ session: z.string().uuid(), executable: z.string().startsWith('/').max(4096), agentHome: z.string().startsWith('/').max(4096),lease:z.string().uuid(),initial:z.boolean() }).strict();
@@ -75,7 +76,7 @@ export class Notifications {
       if(!work.length)this.workKeys.set(target.session,targetWorkKey);
       if (!newWork || target.retryAt > this.now()) continue;
       try {
-        content ??= discussionNotice(work);
+        content ??= displayText(discussionNotice(work), { multiline: true });
         await this.run(target.executable, ['queue','--thread',target.session,'--message',content], { env: { ...process.env, CODEX_HOME:target.agentHome }, encoding:'utf8', timeout:10_000, maxBuffer:64*1024, signal:this.abort.signal });
         this.workKeys.set(target.session,targetWorkKey);
         this.store.prepare('UPDATE notification_sessions SET latest=?,error=NULL,retryAt=0 WHERE session=? AND lease=?').run(latest,target.session,target.lease);

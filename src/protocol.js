@@ -4,18 +4,23 @@ import http from 'node:http';
 import https from 'node:https';
 import { lookup } from 'node:dns';
 import { isIP } from 'node:net';
+import { displayText, MAX_TIMESTAMP } from './display.js';
+
+// Stable bounds also apply to old payloads; envelope freshness is checked on receipt.
+const timestamp = z.number().int().positive().max(MAX_TIMESTAMP);
+const name = max => z.string().min(1).max(max).transform(value => displayText(value) || '?');
 
 export const MAX_BODY = 128 * 1024;
 export const MAX_FILE_SIZE = 512 * 1024 * 1024;
 export const attachmentSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().min(1).max(255).refine(value => value !== '.' && value !== '..' && !/[\\/\u0000-\u001f\u007f]/.test(value) && Buffer.byteLength(value, 'utf8') <= 255, 'Expected a safe filename'),
+  name: z.string().min(1).max(255).refine(value => !/[\\/\u0000-\u001f\u007f]/.test(value), 'Expected a safe filename').transform(value => displayText(value)).pipe(z.string().min(1).refine(value => value !== '.' && value !== '..' && Buffer.byteLength(value, 'utf8') <= 255, 'Expected a safe filename')),
   size: z.number().int().min(0).max(MAX_FILE_SIZE),
   sha256: z.string().regex(/^[a-f0-9]{64}$/)
 }).strict();
 export const text = z.string().min(1).max(48_000).refine(value => Buffer.byteLength(value, 'utf8') <= 48_000, 'Text must fit within 48,000 UTF-8 bytes');
 const key = z.string().min(30).max(200);
-const identitySchema = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().min(1).max(80), signKey: key, boxKey: key }).strict();
+const identitySchema = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), name: name(80), signKey: key, boxKey: key }).strict();
 export const discussionSummary = z.object({
   conclusion: z.string().min(1).max(2000),
   evidence: z.array(z.string().min(1).max(500)).max(6),
@@ -23,7 +28,7 @@ export const discussionSummary = z.object({
   nextStep: z.string().min(1).max(1000)
 }).strict().refine(value => Buffer.byteLength(JSON.stringify(value),'utf8') <= 12_000, 'Summary must fit within 12,000 UTF-8 bytes');
 const discussionEvent = z.discriminatedUnion('type', [
-  z.object({ type:z.literal('proposal'), question:z.string().min(1).max(2000), scope:z.literal('supplied-evidence-only'), maxTurns:z.number().int().min(2).max(8), expiresAt:z.number().int().positive() }).strict(),
+  z.object({ type:z.literal('proposal'), question:z.string().min(1).max(2000), scope:z.literal('supplied-evidence-only'), maxTurns:z.number().int().min(2).max(8), expiresAt:timestamp }).strict(),
   z.object({ type:z.literal('accept') }).strict(),
   z.object({ type:z.literal('reply'), turn:z.number().int().min(1).max(8) }).strict(),
   z.object({ type:z.literal('finish'), turn:z.number().int().min(1).max(8), summary:discussionSummary }).strict(),
@@ -34,7 +39,7 @@ const discussionEvent = z.discriminatedUnion('type', [
 // Each member's card is their own signature over their encryption key, so an
 // owner introducing them cannot swap in a key of its own.
 export const MAX_PARTY = 8;
-export const partyName = z.string().trim().min(1).max(60);
+export const partyName = z.string().trim().min(1).max(60).transform(value => displayText(value) || '?');
 const card = z.string().min(1).max(200);
 const partyMember = z.object({ identity: identitySchema, endpoint: z.string().max(256), card }).strict();
 const partyEvent = z.discriminatedUnion('type', [
@@ -49,8 +54,8 @@ const partyEvent = z.discriminatedUnion('type', [
 // afterwards the agents ask, answer and share notes on their own. Each side
 // keeps how its agent runs to itself; only names and the topic cross.
 export const BRIDGE_TEXT = 8000;
-export const bridgeAgent = z.string().trim().min(1).max(60);
-export const bridgeTopic = z.string().trim().min(1).max(300);
+export const bridgeAgent = z.string().trim().min(1).max(60).transform(value => displayText(value) || '?');
+export const bridgeTopic = z.string().trim().min(1).max(300).transform(value => displayText(value) || '?');
 const bridgeEvent = z.discriminatedUnion('type', [
   z.object({ type:z.literal('propose'), topic:bridgeTopic, agent:bridgeAgent }).strict(),
   z.object({ type:z.literal('accept'), agent:bridgeAgent }).strict(),
@@ -63,7 +68,7 @@ const bridgeEvent = z.discriminatedUnion('type', [
 export const messageSchema = z.object({
   id: z.string().uuid(), kind: z.enum(['message', 'session', 'task_request', 'task_result', 'discussion', 'party', 'bridge']),
   text, thread: z.string().uuid(), replyTo: z.string().uuid().optional(),
-  createdAt: z.number().int().positive(), discussion:discussionEvent.optional(),
+  createdAt: timestamp, discussion:discussionEvent.optional(),
   party: z.string().uuid().optional(), partyEvent: partyEvent.optional(),
   bridge: z.string().uuid().optional(), bridgeEvent: bridgeEvent.optional(),
   attachment: attachmentSchema.optional()
@@ -79,7 +84,7 @@ export const messageSchema = z.object({
 const envelopeSchema = z.object({
   v: z.literal(1), type: z.enum(['pair', 'receipt', 'message', 'announce', 'attachment']),
   id: z.string().uuid(), sender: z.string().length(64), recipient: z.string().length(64),
-  at: z.number().int(), ephemeral: key,
+  at: timestamp, ephemeral: key,
   iv: z.string().max(32), tag: z.string().max(32), body: z.string().max(110_000), signature: z.string().max(128)
 }).strict();
 const pub = value => createPublicKey({ key: Buffer.from(value, 'base64'), type: 'spki', format: 'der' });
@@ -90,7 +95,7 @@ export function newIdentity(name) {
   const signing = generateKeyPairSync('ed25519');
   const box = generateKeyPairSync('x25519');
   const signKey = exportPub(signing.publicKey);
-  return { public: { id: hash(signKey), name, signKey, boxKey: exportPub(box.publicKey) }, signPrivate: exportPrivate(signing.privateKey), boxPrivate: exportPrivate(box.privateKey) };
+  return { public: { id: hash(signKey), name: identitySchema.shape.name.parse(name), signKey, boxKey: exportPub(box.publicKey) }, signPrivate: exportPrivate(signing.privateKey), boxPrivate: exportPrivate(box.privateKey) };
 }
 export function validateIdentity(value) {
   const identity = identitySchema.parse(value);
@@ -107,7 +112,7 @@ export function verifyCard(identity, value) {
 // key, and deletes it soon after the next. Contacts encrypt messages and file
 // chunks to the newest one they hold, so a key stolen later cannot open
 // traffic recorded before it existed.
-export const boxKeySchema = z.object({ key, from: z.number().int().positive(), signature: z.string().max(128) }).strict();
+export const boxKeySchema = z.object({ key, from: timestamp, signature: z.string().max(128) }).strict();
 const boxData = (id, value, from) => Buffer.from(`clanker-box-v1:${id}:${value}:${from}`);
 export function newBoxKey(identity, from) {
   const box = generateKeyPairSync('x25519'), value = exportPub(box.publicKey);
@@ -195,7 +200,7 @@ export function decodeInvite(input, allowLoopback = false) {
   const code = inviteCode(input), payload = code.slice(4);
   const bytes = Buffer.from(payload, 'base64url');
   if (bytes.toString('base64url') !== payload) throw new Error('Invalid connection code encoding');
-  const value = z.object({ v: z.literal(1), identity: identitySchema, endpoint: z.string().max(256), token: z.string().regex(/^[a-f0-9]{64}$/), expires: z.number().int() }).strict().parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)));
+  const value = z.object({ v: z.literal(1), identity: identitySchema, endpoint: z.string().max(256), token: z.string().regex(/^[a-f0-9]{64}$/), expires: timestamp }).strict().parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)));
   if (!value.identity.name.isWellFormed()) throw new Error('Invalid connection identity name');
   validateIdentity(value.identity);
   value.endpoint = endpoint(value.endpoint, allowLoopback);

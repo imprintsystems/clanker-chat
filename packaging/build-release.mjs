@@ -1,31 +1,41 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { releaseArchive } from './archive.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-const dist = join(root, 'dist'); mkdirSync(dist, { recursive: true });
-const name = `${pkg.name}-${pkg.version}.tar.gz`; const archive = join(dist, name);
-// The archive contains dependencies, so a friend can use it without npm.
-// It contains no home directory, identity keys, inboxes, or live tunnel state.
-const metadataOptions = process.platform === 'darwin'
-  ? ['--no-mac-metadata', '--uid', '0', '--gid', '0', '--uname', 'root', '--gname', 'root']
-  : ['--owner=0', '--group=0', '--numeric-owner'];
-// Zod's published source tests contain sample tokens. They are not runtime
-// dependencies and need not be distributed with this app. Keep package licences.
-const excludeFixtures = ['--exclude=__pycache__', '--exclude=*.pyc', '--exclude=node_modules/.package-lock.json', '--exclude=node_modules/zod/src/*/tests', '--exclude=node_modules/zod/src/*/*/tests'];
-execFileSync('tar', [...metadataOptions, ...excludeFixtures, '-czf', archive, '-C', root, 'src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'docs'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
-const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).trim().split('\n');
-const allowedRoots = new Set(['src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'docs']);
-const forbidden = entries.filter(name => {
-  const parts = name.split('/').filter(Boolean);
-  return name.startsWith('/') || parts.includes('..') || !allowedRoots.has(parts[0]) || parts.some(part => /^(\.git|\.env(?:\..*)?|\._.*|\.DS_Store|profile\.json|clients\.json|integrations\.json|backups|__pycache__)$/.test(part)) || /\.(db(?:-(?:wal|shm))?|sqlite3?|pem|key|p12|pfx|sock|log|pyc)$/.test(name);
-});
-if (forbidden.length) throw new Error(`Release contains forbidden entries: ${forbidden.join(', ')}`);
-const digest = createHash('sha256').update(readFileSync(archive)).digest('hex');
-writeFileSync(join(dist, `${name}.sha256`), `${digest}  ${name}\n`);
+// Pin the build toolchain, not the minimum runtime supported by the inbox.
+const buildNode = '26.13.0', buildNpm = '11.20.0';
+if (process.versions.node !== buildNode || execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() !== buildNpm) throw new Error(`Build releases with Node ${buildNode} and npm ${buildNpm}`);
+const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+const commit = git(['rev-parse', '--verify', `${process.env.CLANKER_RELEASE_REF || 'HEAD'}^{commit}`]);
+const epoch = Number(process.env.SOURCE_DATE_EPOCH ?? git(['show', '-s', '--format=%ct', commit]));
+if (!Number.isSafeInteger(epoch) || epoch < 0 || epoch > 0o77777777777) throw new Error('Invalid SOURCE_DATE_EPOCH');
+const dist = resolve(process.env.CLANKER_RELEASE_DIR || join(root, 'dist'));
+mkdirSync(dist, { recursive: true });
+const stage = mkdtempSync(join(tmpdir(), 'clanker-release-'));
+let pkg, name, archive, digest;
+try {
+  const source = join(stage, 'source.tar');
+  execFileSync('git', ['archive', '--format=tar', '--output', source, commit], { cwd: root });
+  const tree = join(stage, 'tree'); mkdirSync(tree);
+  execFileSync('tar', ['-xf', source, '-C', tree], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
+  pkg = JSON.parse(readFileSync(join(tree, 'package.json'), 'utf8'));
+  // Never bundle the developer's node_modules or execute dependency lifecycle hooks.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
+  const userConfig = join(stage, 'user.npmrc'), globalConfig = join(stage, 'global.npmrc');
+  writeFileSync(userConfig, ''); writeFileSync(globalConfig, '');
+  execFileSync('npm', ['ci', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', `--userconfig=${userConfig}`, `--globalconfig=${globalConfig}`], { cwd: tree, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  writeFileSync(join(tree, 'SOURCE.json'), JSON.stringify({ repository: 'https://github.com/imprintsystems/clanker-chat', commit, sourceDateEpoch: epoch, node: buildNode, npm: buildNpm }) + '\n');
+  name = `${pkg.name}-${pkg.version}.tar.gz`; archive = join(dist, name);
+  const bytes = releaseArchive(tree, ['src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'docs', 'SOURCE.json'], epoch);
+  writeFileSync(archive, bytes);
+  digest = createHash('sha256').update(bytes).digest('hex');
+  writeFileSync(join(dist, `${name}.sha256`), `${digest}  ${name}\n`);
+} finally { rmSync(stage, { recursive: true, force: true }); }
 const url = process.env.CLANKER_RELEASE_URL || pathToFileURL(archive).href;
 if (!/^(https:|file:)/.test(url)) throw new Error('Release URL must use HTTPS or a local file');
 const formula = `class Clanker < Formula
@@ -77,4 +87,4 @@ const formula = `class Clanker < Formula
 end
 `;
 writeFileSync(join(dist, 'clanker.rb'), formula);
-console.log(JSON.stringify({ archive, sha256: digest, formula: join(dist, 'clanker.rb'), scope: process.env.CLANKER_RELEASE_URL ? 'hosted archive URL supplied by operator' : 'local formula; rebuild with a hosted archive URL before distributing the formula' }, null, 2));
+console.log(JSON.stringify({ archive, sha256: digest, commit, sourceDateEpoch: epoch, formula: join(dist, 'clanker.rb'), scope: process.env.CLANKER_RELEASE_URL ? 'hosted archive URL supplied by operator' : 'local formula; rebuild with a hosted archive URL before distributing the formula' }, null, 2));

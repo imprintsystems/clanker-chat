@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { z } from 'zod';
-import { Store, contactName } from './store.js';
+import { Store, contactName, MessageStorageError } from './store.js';
 import { endpoint, encodeInvite, decodeInvite, inviteLink, messageSchema, open, openPair, seal, post, text } from './protocol.js';
 import { socketPath, readJSON, json } from './local.js';
 import { authorizeClient, readAccess, readAccessAsync, setAgentNote } from './access.js';
@@ -20,6 +20,7 @@ import { Updates } from './updates.js';
 import { Attachments } from './attachments.js';
 import { Discovery, discoveryCredentials } from './discovery.js';
 import { Keys } from './keys.js';
+import { findExecutable, executablePath, executableSearchPath } from './clients.js';
 
 const filePath = z.string().min(1).max(4096).refine(isAbsolute, 'Use an absolute file path');
 const sendSchema = z.object({
@@ -50,7 +51,7 @@ const addressFailure = error => /^Peer connection failed \(|^Peer returned HTTP 
 const ROUTES = { '/v1/pair': 'pair', '/v1/messages': 'message', '/v1/announce': 'announce', '/v1/attachments': 'attachment' };
 // Per contact per minute: announcements and messages, and file chunks.
 const REQUEST_LIMIT = 120, CHUNK_LIMIT = 6000;
-// Failed pairing attempts per minute while an invitation is open.
+// Invalid bearer tokens per minute, whether or not an invitation is open.
 const PAIR_FAILURES = 30;
 
 export class ClankerChat extends EventEmitter {
@@ -98,10 +99,12 @@ export class ClankerChat extends EventEmitter {
       if (local) this.setEndpoint(`http://127.0.0.1:${this.port}`);
       else await this.startTunnel();
       if (this.stopping) throw new Error('Daemon stopped during startup');
+      this.store.prune(); this.lastPrune = Date.now();
       this.timer = setInterval(() => {
         this.tick(); this.notifications.tick().catch(error => this.emit('warning', error.message)); this.updates.tick().catch(() => {}); this.bridges.tick();
         this.keys.tick();
         this.retainDiscovery();
+        if (Date.now() - this.lastPrune >= 3_600_000) { this.store.prune(); this.lastPrune = Date.now(); }
         if (this.endpointReady) this.discovery.tick(this.origin);
       }, 2_000);
       this.tick();
@@ -113,10 +116,15 @@ export class ClankerChat extends EventEmitter {
     this.discovery.tick(this.origin);
   }
   async startTunnel() {
+    // CLOUDFLARED_BIN may name a command or give an absolute path; a bare name
+    // is looked up like the default, never relative to a working folder.
+    const configured = this.options.cloudflared || 'cloudflared';
+    const executable = configured.includes('/') ? executablePath(configured) : findExecutable(configured);
+    if (!executable) throw new Error(`${configured} is not an executable on an absolute PATH entry. Install cloudflared or set CLOUDFLARED_BIN to its absolute path.`);
     const metrics = await freePort();
     await new Promise((resolve, reject) => {
       let logs = ''; let ready = false;
-      const child = spawn(this.options.cloudflared || 'cloudflared', ['tunnel', '--url', `http://127.0.0.1:${this.port}`, '--metrics', `127.0.0.1:${metrics}`, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(executable, ['tunnel', '--url', `http://127.0.0.1:${this.port}`, '--metrics', `127.0.0.1:${metrics}`, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PATH: executableSearchPath() } });
       this.tunnel = child;
       const timeout = setTimeout(() => { child.kill(); reject(new Error('Tunnel startup timed out')); }, 45_000);
       const consume = data => {
@@ -164,22 +172,23 @@ export class ClankerChat extends EventEmitter {
       const now = Date.now();
       if (!this.rate || now - this.rate.at > 60_000) this.rate = { at: now, pairFailures: 0, peers: new Map() };
       if (req.url === '/v1/pair') {
-        // Pairing is reachable only while an invitation is open. Failed attempts
-        // are capped; a valid invitation token is 256 bits and cannot be guessed.
-        if (!this.store.invitePending()) throw new Error('No open invitation');
-        if (this.rate.pairFailures >= PAIR_FAILURES) return json(res, 429, { error: 'Try later' });
-        try {
-          const envelope = await readJSON(req);
-          const { data, sender } = openPair(this.store.identity, envelope);
-          const pair = pairSchema.parse(data);
-          if (sender.id === this.store.identity.public.id) throw new Error('Cannot pair with yourself');
-          this.store.acceptInvite(pair.token, sender, endpoint(pair.endpoint, this.options.local));
-          this.store.saw(sender.id);
-          this.emit('paired', sender);
-          // Announce now, so the new contact's receipt brings their recovery key.
-          this.lastAnnounce = 0; this.tick();
-          return json(res, 200, seal(this.store.identity, sender, 'receipt', { requestId: envelope.id, paired: true, box: this.keys.statement(), ...await this.shareDiscovery(sender.id) }));
-        } catch (error) { this.rate.pairFailures++; throw error; }
+        const envelope = await readJSON(req);
+        const { data, sender } = openPair(this.store.identity, envelope);
+        const pair = pairSchema.parse(data);
+        // Tokens are encrypted, so check them after opening the envelope. A
+        // stranger's failures must never prevent a real token holder pairing.
+        // Malformed envelopes need no token lookup and consume no allowance.
+        if (!this.store.validInvite(pair.token)) {
+          if (++this.rate.pairFailures > PAIR_FAILURES) return json(res, 429, { error: 'Try later' });
+          throw new Error('Invalid or used invitation');
+        }
+        if (sender.id === this.store.identity.public.id) throw new Error('Cannot pair with yourself');
+        this.store.acceptInvite(pair.token, sender, endpoint(pair.endpoint, this.options.local));
+        this.store.saw(sender.id);
+        this.emit('paired', sender);
+        // Announce now, so the new contact's receipt brings their recovery key.
+        this.lastAnnounce = 0; this.tick();
+        return json(res, 200, seal(this.store.identity, sender, 'receipt', { requestId: envelope.id, paired: true, box: this.keys.statement(), ...await this.shareDiscovery(sender.id) }));
       }
       const envelope = await readJSON(req);
       if (typeof envelope?.sender !== 'string' || !/^[a-f0-9]{64}$/.test(envelope.sender)) throw new Error('Unknown sender');
@@ -195,6 +204,7 @@ export class ClankerChat extends EventEmitter {
       if (req.url === '/v1/attachments' ? ++used.chunks > CHUNK_LIMIT : ++used.requests > REQUEST_LIMIT) return json(res, 429, { error: 'Try later' });
       if (req.url === '/v1/attachments') {
         const receipt = await this.attachments.receive(peer, data);
+        this.allowAttachment(peer.id, data.party);
         this.store.saw(peer.id);
         return json(res, 200, seal(this.store.identity, peer.identity, 'receipt', { ...receipt, requestId: envelope.id }));
       }
@@ -204,10 +214,17 @@ export class ClankerChat extends EventEmitter {
         if (peer.partyOnly && !message.party) throw new Error('Party-only contact');
         if (message.attachment) {
           this.allowAttachment(peer.id, message.party);
-          await this.attachments.verifyReceived(peer.id, message.attachment, message.party);
+          await this.attachments.verifyReceived(peer.id, message.attachment, message.party, message.id);
           this.allowAttachment(peer.id, message.party);
         }
-        const inserted = message.party ? this.parties.receive(peer.id, message) : message.kind === 'discussion' ? this.discussions.receive(peer.id,message) : message.kind === 'bridge' ? this.bridges.receive(peer.id, message) : this.store.insert(peer.id, 'in', message);
+        let inserted;
+        try {
+          const accept = () => message.party ? this.parties.receive(peer.id, message) : message.kind === 'discussion' ? this.discussions.receive(peer.id,message) : message.kind === 'bridge' ? this.bridges.receive(peer.id, message) : this.store.insert(peer.id, 'in', message);
+          inserted = message.attachment ? this.attachments.acceptReceived(peer.id, message.attachment, message.party, message.id, accept) : accept();
+        } catch (error) {
+          if (error instanceof MessageStorageError) return json(res, 507, { error: error.message });
+          throw error;
+        }
         if (message.kind === 'bridge') { if (inserted) { this.emit('bridge'); this.bridges.tick(); } if (inserted && message.bridgeEvent.type === 'propose') this.emit('message', { peer: contactName(peer), id: message.id }); }
         else if (inserted) this.emit('message', { peer: contactName(peer), id: message.id });
         // New party members need this inbox's current address now, not at the next 30-second announcement.
@@ -286,7 +303,12 @@ export class ClankerChat extends EventEmitter {
       }
       case 'pair': {
         if (!this.endpointReady) throw new Error('Tunnel is not running');
-        const invite = decodeInvite(z.string().parse(args.code), this.options.local);
+        let invite;
+        try { invite = decodeInvite(z.string().parse(args.code), this.options.local); }
+        catch (error) {
+          // Parser diagnostics can include decoded bearer-token text.
+          throw new Error(error.message === 'Connection code expired' ? error.message : 'Invalid connection link or code');
+        }
         if (invite.identity.id === this.store.identity.public.id) throw new Error('Cannot pair with yourself');
         const existing = this.store.peers().find(p => p.id === invite.identity.id);
         if (existing?.revoked) throw new Error('Peer revoked locally');
