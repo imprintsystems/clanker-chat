@@ -42,20 +42,24 @@ check out the tag, unset `SOURCE_DATE_EPOCH`, and run:
 CLANKER_RELEASE_REF=vX.Y.Z node packaging/build-release.mjs
 gh release download vX.Y.Z -R imprintsystems/clanker-chat \
   --pattern clanker-chat-X.Y.Z.tar.gz --dir /tmp/clanker-published
-shasum -a 256 dist/clanker-chat-X.Y.Z.tar.gz /tmp/clanker-published/clanker-chat-X.Y.Z.tar.gz
-cmp dist/clanker-chat-X.Y.Z.tar.gz /tmp/clanker-published/clanker-chat-X.Y.Z.tar.gz
+gzip -dc dist/clanker-chat-X.Y.Z.tar.gz | shasum -a 256
+gzip -dc /tmp/clanker-published/clanker-chat-X.Y.Z.tar.gz | shasum -a 256
 gh attestation verify /tmp/clanker-published/clanker-chat-X.Y.Z.tar.gz \
   --repo imprintsystems/clanker-chat \
   --signer-workflow imprintsystems/clanker-chat/.github/workflows/release-provenance.yml \
   --source-ref refs/tags/vX.Y.Z
 ```
 
-Both hashes must match. The tag/manual provenance workflow publishes its own
+Both hashes must match. They compare the uncompressed tar: zlib compresses the
+same tar to different bytes on different CPU architectures (a Mac build and the
+Linux workflow differ only in their gzip stream), so the `.tar.gz` checksums of
+two honest builds can differ. The tag provenance workflow publishes its own
 archive/checksum/formula artifact and GitHub build attestation without changing
-manual release assets. Publish the byte-identical archive to carry that
-attestation over to the release download. Attestations require a successful run
-for a tag containing the workflow; older releases and standalone Linux bundles
-are not retroactively covered. Provenance is not a source-code security audit.
+release assets. Publish that attested archive, after checking that its tar
+matches a local build, so the release download carries the attestation.
+Attestations require a successful run for a tag containing the workflow; older
+releases and standalone Linux bundles are not retroactively covered. Provenance
+is not a source-code security audit.
 
 ## Local history bounds
 

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { gunzipSync } from 'node:zlib';
 import { releaseArchive } from './archive.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -17,7 +18,7 @@ if (!Number.isSafeInteger(epoch) || epoch < 0 || epoch > 0o77777777777) throw ne
 const dist = resolve(process.env.CLANKER_RELEASE_DIR || join(root, 'dist'));
 mkdirSync(dist, { recursive: true });
 const stage = mkdtempSync(join(tmpdir(), 'clanker-release-'));
-let pkg, name, archive, digest;
+let pkg, name, archive, digest, tarDigest;
 try {
   const source = join(stage, 'source.tar');
   execFileSync('git', ['archive', '--format=tar', '--output', source, commit], { cwd: root });
@@ -34,6 +35,9 @@ try {
   const bytes = releaseArchive(tree, ['src', 'node_modules', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'docs', 'SOURCE.json'], epoch);
   writeFileSync(archive, bytes);
   digest = createHash('sha256').update(bytes).digest('hex');
+  // zlib's deflate output differs between CPU architectures, so the
+  // uncompressed tar is what any machine reproduces byte for byte.
+  tarDigest = createHash('sha256').update(gunzipSync(bytes)).digest('hex');
   writeFileSync(join(dist, `${name}.sha256`), `${digest}  ${name}\n`);
 } finally { rmSync(stage, { recursive: true, force: true }); }
 const url = process.env.CLANKER_RELEASE_URL || pathToFileURL(archive).href;
@@ -87,4 +91,4 @@ const formula = `class Clanker < Formula
 end
 `;
 writeFileSync(join(dist, 'clanker.rb'), formula);
-console.log(JSON.stringify({ archive, sha256: digest, commit, sourceDateEpoch: epoch, formula: join(dist, 'clanker.rb'), scope: process.env.CLANKER_RELEASE_URL ? 'hosted archive URL supplied by operator' : 'local formula; rebuild with a hosted archive URL before distributing the formula' }, null, 2));
+console.log(JSON.stringify({ archive, sha256: digest, tarSha256: tarDigest, commit, sourceDateEpoch: epoch, formula: join(dist, 'clanker.rb'), scope: process.env.CLANKER_RELEASE_URL ? 'hosted archive URL supplied by operator' : 'local formula; rebuild with a hosted archive URL before distributing the formula' }, null, 2));
