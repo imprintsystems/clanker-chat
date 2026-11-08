@@ -2,9 +2,10 @@ import { createHash, generateKeyPairSync, createPrivateKey, createPublicKey, sig
 import { z } from 'zod';
 import http from 'node:http';
 import https from 'node:https';
-import { lookup } from 'node:dns';
-import { isIP } from 'node:net';
+import { createTunnelLookup } from './tunnel-dns.js';
 import { displayText, MAX_TIMESTAMP } from './display.js';
+
+const tunnelLookup = createTunnelLookup();
 
 // Stable bounds also apply to old payloads; envelope freshness is checked on receipt.
 const timestamp = z.number().int().positive().max(MAX_TIMESTAMP);
@@ -230,27 +231,4 @@ export async function post(origin, route, payload, allowLoopback = false) {
     request.on('error', error => reject(new Error(`Peer connection failed (${error.code || error.name})`, { cause: error })));
     request.end(body);
   });
-}
-
-// New Quick Tunnel names sometimes hit a negative cache in a system resolver.
-// Restrict the fallback to the exact tunnel domain and retain normal TLS hostname
-// verification. No hardcoded edge IPs, TLS bypass, or arbitrary DNS proxying.
-function tunnelLookup(hostname, options, callback) {
-  lookup(hostname, options, (error, address, family) => {
-    if (!error || error.code !== 'ENOTFOUND' || !/^[a-z0-9-]+\.trycloudflare\.com$/.test(hostname)) return callback(error, address, family);
-    resolveTunnel(hostname).then(ip => {
-      if (options?.all) callback(null, [{ address: ip, family: 4 }]);
-      else callback(null, ip, 4);
-    }).catch(() => callback(error));
-  });
-}
-async function resolveTunnel(hostname) {
-  const response = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, { headers: { accept: 'application/dns-json' }, redirect: 'error', signal: AbortSignal.timeout(4_000) });
-  if (!response.ok) throw new Error('DNS fallback unavailable');
-  const chunks = []; let size = 0;
-  for await (const chunk of response.body) { size += chunk.length; if (size > 8192) throw new Error('DNS response too large'); chunks.push(chunk); }
-  const result = JSON.parse(Buffer.concat(chunks, size).toString());
-  const ip = result.Status === 0 && result.Answer?.find(answer => answer.type === 1 && isIP(answer.data) === 4)?.data;
-  if (!ip || /^(0|10|127|169\.254|192\.168)\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip)) throw new Error('DNS fallback returned no public IPv4 address');
-  return ip;
 }
