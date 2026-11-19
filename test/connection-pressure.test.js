@@ -12,20 +12,29 @@ import { newIdentity, seal, open } from '../src/protocol.js';
 
 test('local socket exhaustion does not trigger more address-discovery requests', async t => {
   const peer = { id: 'a'.repeat(64), endpoint: 'https://synthetic.trycloudflare.com' };
-  const daemon = new ClankerChat({}); let discoveries = 0, code;
+  const daemon = new ClankerChat({}); let discoveries = 0, failure;
   daemon.store = { peer: () => peer, discovery: () => ({}) };
   daemon.discovery = { status: () => ({ enabled: true }), resolve: async () => { discoveries++; return null; } };
   t.mock.method(https, 'request', () => {
     const request = new EventEmitter();
-    request.end = () => queueMicrotask(() => request.emit('error', Object.assign(new Error('synthetic connection failure'), { code })));
+    request.end = () => queueMicrotask(() => request.emit('error', failure));
     return request;
   });
-  for (code of ['EADDRNOTAVAIL', 'EMFILE', 'ENFILE', 'ENOBUFS']) {
-    await assert.rejects(daemon.postPeer(peer, '/v1/announce', {}), error => error.cause?.code === code);
+  const socketError = code => Object.assign(new Error('synthetic connection failure'), { code });
+  // Node copies the first attempt's code onto a multi-address connection error.
+  const aggregate = (...codes) => Object.assign(new AggregateError(codes.map(socketError)), { code: codes[0] });
+  for (const code of ['EADDRNOTAVAIL', 'EMFILE', 'ENFILE', 'ENOBUFS']) {
+    failure = socketError(code);
+    await assert.rejects(daemon.postPeer(peer, '/v1/announce', {}), error => error.cause === failure);
   }
+  failure = aggregate('EADDRNOTAVAIL', 'ENOBUFS');
+  await assert.rejects(daemon.postPeer(peer, '/v1/announce', {}), error => error.cause === failure);
   assert.equal(discoveries, 0);
-  code = 'ECONNREFUSED'; await assert.rejects(daemon.postPeer(peer, '/v1/announce', {}));
-  assert.equal(discoveries, 1, 'a remote address failure still tries normal recovery');
+  for (const remoteFailure of [socketError('ECONNREFUSED'), aggregate('EADDRNOTAVAIL', 'ECONNREFUSED'), aggregate('ECONNREFUSED', 'EADDRNOTAVAIL')]) {
+    failure = remoteFailure;
+    await assert.rejects(daemon.postPeer(peer, '/v1/announce', {}), error => error.cause === failure);
+  }
+  assert.equal(discoveries, 3, 'a remote address failure still tries normal recovery');
 });
 
 function fixture(t) {
@@ -47,14 +56,14 @@ function fixture(t) {
     return seal(identity, store.identity.public, 'receipt', { requestId: envelope.id, ...result });
   });
   return { daemon, store, attempts, advance: ms => { now += ms; }, online: () => { offline = false; },
-    async flush() { daemon.lastAnnounce = 0; await daemon.flush(); } };
+    flush: () => daemon.flush() };
 }
 
 test('offline heartbeats back off to five minutes while live contacts keep their cadence', async t => {
   const f = fixture(t);
   await f.flush(); assert.deepEqual(f.attempts, { Quiet: 1, Live: 1 });
-  f.advance(30_000); await f.flush(); assert.deepEqual(f.attempts, { Quiet: 1, Live: 2 });
-  f.advance(30_000); await f.flush(); assert.equal(f.attempts.Quiet, 2);
+  f.advance(32_000); await f.flush(); assert.deepEqual(f.attempts, { Quiet: 1, Live: 2 });
+  f.advance(28_000); await f.flush(); assert.deepEqual(f.attempts, { Quiet: 2, Live: 2 });
   f.advance(119_999); await f.flush(); assert.equal(f.attempts.Quiet, 2);
   f.advance(1); await f.flush(); assert.equal(f.attempts.Quiet, 3);
   f.advance(240_000); await f.flush(); assert.equal(f.attempts.Quiet, 4);

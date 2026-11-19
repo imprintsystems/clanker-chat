@@ -47,7 +47,10 @@ const READ_ONLY = ['status', 'overview', 'message', 'peers', 'parties', 'party_g
 // get a signed receipt back, so a contact unheard of for longer than this is offline.
 const ONLINE = 75_000;
 const LOCAL_CAPACITY = new Set(['EADDRNOTAVAIL', 'EMFILE', 'ENFILE', 'ENOBUFS']);
-const addressFailure = error => !LOCAL_CAPACITY.has(error.cause?.code) && /^Peer connection failed \(|^Peer returned HTTP (404|502|503|504|530)$/.test(error.message);
+const localCapacityFailure = error => error instanceof AggregateError && error.errors.length
+  ? error.errors.every(attempt => LOCAL_CAPACITY.has(attempt?.code))
+  : LOCAL_CAPACITY.has(error?.code);
+const addressFailure = error => !localCapacityFailure(error.cause) && /^Peer connection failed \(|^Peer returned HTTP (404|502|503|504|530)$/.test(error.message);
 // Public routes and the envelope type each accepts.
 const ROUTES = { '/v1/pair': 'pair', '/v1/messages': 'message', '/v1/announce': 'announce', '/v1/attachments': 'attachment' };
 // Per contact per minute: announcements and messages, and file chunks.
@@ -474,10 +477,12 @@ export class ClankerChat extends EventEmitter {
   async flush() {
     this.discussions.expire();
     // Re-announce periodically so a friend that kept their endpoint can learn a
-    // replacement address after our Quick Tunnel restarts. All at once, so an
-    // unreachable contact doesn't hold up the others or the outbox below.
-    if (!this.lastAnnounce || Date.now() - this.lastAnnounce > 30_000) {
-      this.lastAnnounce = Date.now();
+    // replacement address after our Quick Tunnel restarts. Retry deadlines
+    // can fall between the regular heartbeats.
+    const now = Date.now();
+    const heartbeat = !this.lastAnnounce || now - this.lastAnnounce >= 30_000;
+    if (heartbeat || [...this.announceRetries.values()].some(retry => now >= retry.at)) {
+      if (heartbeat) this.lastAnnounce = now;
       await Promise.all(this.store.prepare('SELECT id FROM peers').all().map(async ({ id }) => {
         const peer = this.store.peer(id);
         if (this.stopping || peer.revoked || (peer.partyOnly && !this.parties.shared(peer.id))) { this.announceRetries.delete(id); return; }
@@ -485,8 +490,9 @@ export class ClankerChat extends EventEmitter {
         // An authenticated contact heard from again, or a changed address, gets
         // the next normal heartbeat immediately. Outbox delivery is independent.
         const retry = this.announceRetries.get(id);
-        const unchanged = retry?.endpoint === peer.endpoint && retry?.seen === peer.seen;
-        if (unchanged && Date.now() < retry.at) return;
+        const unchanged = retry && retry.endpoint === peer.endpoint && retry.seen === peer.seen;
+        const due = retry && now >= retry.at;
+        if (!due && (!heartbeat || unchanged)) return;
         try {
           const envelope = seal(this.store.identity, peer.identity, 'announce', { endpoint: this.origin });
           const receipt = open(this.store.identity, await this.postPeer(peer, '/v1/announce', envelope), peer.identity, 'receipt');

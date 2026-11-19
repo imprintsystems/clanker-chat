@@ -70,6 +70,22 @@ test('the cache bounds completed and pending entries; excess requests cannot byp
   await query(resolve, 'overflow.trycloudflare.com'); assert.equal(calls, 257);
 });
 
+test('cache pressure preserves active failure cooldowns and admits new names as they expire', async () => {
+  let now = 1, calls = 0;
+  const resolve = createTunnelLookup({ lookup, now: () => now, fetch: async () => {
+    calls++; return new Response(null, { status: 503 });
+  } });
+  const names = Array.from({ length: 256 }, (_, i) => `synthetic-${i}.trycloudflare.com`);
+  for (const name of names) await assert.rejects(query(resolve, name), { code: 'ENOTFOUND' });
+  now += 29_999;
+  await assert.rejects(query(resolve, 'overflow.trycloudflare.com'), { code: 'ENOTFOUND' });
+  for (const name of names) await assert.rejects(query(resolve, name), { code: 'ENOTFOUND' });
+  assert.equal(calls, 256);
+  now++;
+  await assert.rejects(query(resolve, 'overflow.trycloudflare.com'), { code: 'ENOTFOUND' });
+  assert.equal(calls, 257);
+});
+
 test('fallback TTL is capped at five minutes and zero TTL does not become a permanent cache entry', async () => {
   for (const [ttl, expires] of [[86400, 300_000], [0, 0]]) {
     let now = 1, calls = 0;

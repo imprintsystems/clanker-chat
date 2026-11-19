@@ -16,11 +16,14 @@ export function createTunnelLookup({ lookup = systemLookup, fetch = globalThis.f
       let entry = cache.get(hostname);
       if (entry && !entry.pending && now() >= entry.until) { cache.delete(hostname); entry = undefined; }
       if (!entry) {
-        // Never evict in-flight work, which would allow duplicate requests.
+        // Keep in-flight lookups and unexpired failure cooldowns. A successful
+        // answer can make room for a new name if no expired entries remain.
         if (cache.size >= MAX_ENTRIES) {
-          const oldest = [...cache].find(([, value]) => !value.pending);
-          if (!oldest) return callback(error);
-          cache.delete(oldest[0]);
+          const time = now();
+          const expired = [...cache].find(([, value]) => !value.pending && time >= value.until);
+          const evict = expired ?? [...cache].find(([, value]) => !value.pending && value.address);
+          if (!evict) return callback(error);
+          cache.delete(evict[0]);
         }
         entry = { pending: true };
         cache.set(hostname, entry);
